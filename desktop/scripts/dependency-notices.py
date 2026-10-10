@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -49,16 +50,18 @@ def rust_entries(cargo):
         yield package["name"], package["version"], package["license"] or "See retained notices", files or supplement(f'{package["name"]}-{package["version"]}')
 
 
-def dotnet_entries(publish):
+def dotnet_entries(publish, package_cache):
     manifest = json.loads((publish / "Umbod.Windows.deps.json").read_text())
-    # Self-contained SDK publishing preserves these notices at the output root.
-    files = [(path.name, path.read_text(errors="replace")) for path in sorted(publish.iterdir()) if path.is_file() and is_notice(path)]
-    if not any("third" in name.lower() for name, _ in files) or not any("license" in name.lower() for name, _ in files):
-        raise ValueError("Self-contained .NET output must retain LICENSE and ThirdPartyNotices")
     versions = sorted(key for key in manifest["libraries"] if key.lower().startswith("runtimepack."))
     if not versions:
         raise ValueError("Missing self-contained .NET runtime identities")
-    yield ".NET and Windows Desktop runtime", ", ".join(versions), "See retained notices", files
+    for identity in versions:
+        name, version = identity.removeprefix("runtimepack.").split("/")
+        root = package_cache / name.lower() / version
+        files = [(path.name, path.read_text(errors="replace")) for path in sorted(root.glob("*")) if path.is_file() and is_notice(path)]
+        if not any("third" in filename.lower() for filename, _ in files) or not any("license" in filename.lower() for filename, _ in files):
+            raise ValueError(f"{identity} must retain LICENSE and ThirdPartyNotices from its exact NuGet runtime pack")
+        yield name, version, "See retained notices", files
 
 
 def main():
@@ -67,8 +70,9 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--cargo", default="cargo")
     parser.add_argument("--publish", type=Path)
+    parser.add_argument("--nuget-packages", type=Path, default=Path(os.environ.get("NUGET_PACKAGES", str(Path.home() / ".nuget/packages"))))
     args = parser.parse_args()
-    entries = list(python_entries()) if args.platform == "python" else [*rust_entries(args.cargo), *dotnet_entries(args.publish)]
+    entries = list(python_entries()) if args.platform == "python" else [*rust_entries(args.cargo), *dotnet_entries(args.publish, args.nuget_packages)]
     notices = ["Umbod Desktop third-party notices\n\nUmbod source license\n" + (DESKTOP.parent / "LICENSE").read_text()]
     inventory = []
     for name, version, license_id, files in entries:
