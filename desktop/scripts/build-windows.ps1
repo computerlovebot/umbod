@@ -39,7 +39,7 @@ try {
     New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
     $publish = Join-Path $OutputDirectory ('publish-' + [Guid]::NewGuid().ToString('N'))
     Invoke-Checked $Dotnet @('publish', 'windows/Umbod.Windows/Umbod.Windows.csproj', '-c', 'Release',
-        "-p:Version=$version", '-r', 'win-x64', '--self-contained', 'true', '-p:EnableWindowsTargeting=true', '-o', $publish)
+        "-p:Version=$version", '-p:RuntimeFrameworkVersion=8.0.31', '-r', 'win-x64', '--self-contained', 'true', '-p:EnableWindowsTargeting=true', '-o', $publish)
     Copy-Item -LiteralPath $GatewayExecutable -Destination (Join-Path $publish 'umbod-gateway.exe')
     [IO.File]::WriteAllText((Join-Path $publish 'umbod-profile'), "$Channel`n", [Text.UTF8Encoding]::new($false))
     Write-Host "Built $publish"

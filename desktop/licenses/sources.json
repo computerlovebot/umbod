@@ -58,5 +58,17 @@
     "source": "https://raw.githubusercontent.com/PrefectHQ/fastmcp/34597af15256dad0935809fb4b7959bd4eaf3e59/LICENSE",
     "source_sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
     "notice_sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+  },
+  "dotnet-wpf-8.0.31": {
+    "file": "dotnet-wpf-8.0.31.txt",
+    "source": "https://raw.githubusercontent.com/dotnet/wpf/27c84022a86fcaa600315f4686cde97874615a24/THIRD-PARTY-NOTICES.TXT",
+    "source_sha256": "d23dba2fee20c6b59d8f7088ee9ed372459c952a319b7ca90f3eec370cc76eb9",
+    "notice_sha256": "d23dba2fee20c6b59d8f7088ee9ed372459c952a319b7ca90f3eec370cc76eb9"
+  },
+  "dotnet-winforms-8.0.31": {
+    "file": "dotnet-winforms-8.0.31.txt",
+    "source": "https://raw.githubusercontent.com/dotnet/winforms/f4ddf3475a1269429508fe203cdfc4e21c3599d1/THIRD-PARTY-NOTICES.TXT",
+    "source_sha256": "d68d386849444fab1012e84beb398aeca4aaa3d50e753e9f218242b3753aa28f",
+    "notice_sha256": "d68d386849444fab1012e84beb398aeca4aaa3d50e753e9f218242b3753aa28f"
   }
 }

@@ -59,6 +59,8 @@ def dotnet_entries(publish, package_cache):
         name, version = identity.removeprefix("runtimepack.").split("/")
         root = package_cache / name.lower() / version
         files = [(path.name, path.read_text(errors="replace")) for path in sorted(root.glob("*")) if path.is_file() and is_notice(path)]
+        if name == "Microsoft.WindowsDesktop.App.Runtime.win-x64":
+            files += supplement(f"dotnet-wpf-{version}") + supplement(f"dotnet-winforms-{version}")
         if not any("third" in filename.lower() for filename, _ in files) or not any("license" in filename.lower() for filename, _ in files):
             raise ValueError(f"{identity} must retain LICENSE and ThirdPartyNotices from its exact NuGet runtime pack")
         yield name, version, "See retained notices", files
