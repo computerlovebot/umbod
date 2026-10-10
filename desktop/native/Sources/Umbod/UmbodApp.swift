@@ -5,6 +5,7 @@ import UmbodCore
 @MainActor final class AppModel: ObservableObject {
     static let shared = AppModel()
     let backend = Backend()
+    let updates = UpdateModel()
     @Published var activation = ActivationState([:])
     @Published var diagnostics: [String: Any] = [:]
     @Published var dailyCalls: [String: Int] = [:]
@@ -115,10 +116,11 @@ import UmbodCore
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var model = AppModel.shared
     var body: some Scene {
-        Window(AppEnvironment.current.name, id: "main") { Workspace().environmentObject(model).frame(minWidth: 950, minHeight: 680).task { Task { await model.start() } } }
+        Window(AppEnvironment.current.name, id: "main") { Workspace().environmentObject(model).frame(minWidth: 950, minHeight: 680).task { Task { await model.start() } }.task { await model.updates.monitor() } }
             .defaultSize(width: 1120, height: 780)
             .commands {
                 CommandGroup(replacing: .newItem) {}
+                CommandGroup(after: .appInfo) { CheckForUpdatesMenuButton().environmentObject(model) }
                 CommandGroup(replacing: .appSettings) { SettingsMenuButton().environmentObject(model) }
             }
         MenuBarExtra(AppEnvironment.current.name, systemImage: "point.3.connected.trianglepath.dotted") { BackgroundMenu() }
@@ -183,6 +185,7 @@ struct Workspace: View {
                     }
                     }
                     StatusMessages()
+                    UpdateBanner(updates: model.updates)
                     switch page ?? .overview { case .overview: Overview(page: $page); case .servers: ServersView(selectedConnector: $selectedConnector) }
                 }.padding(.horizontal, 40).padding(.vertical, 48).frame(maxWidth: 1440, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -415,6 +418,7 @@ struct GeneralSettingsView: View {
     @State private var reference = "upstream:"
     @State private var secret = ""
     var body: some View {
+        UpdatesView(updates: model.updates)
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -461,6 +465,6 @@ struct GeneralSettingsView: View {
             }
         }
         Panel { Text("Credential vault").font(.headline); Text("Store a credential for a custom header or environment variable. Reference names are public identifiers; values stay in macOS Keychain.").foregroundStyle(Brand.muted); TextField("Reference, e.g. upstream:weather-key", text: $reference).textFieldStyle(BrandTextFieldStyle()); SecureField("Credential value", text: $secret).textFieldStyle(BrandTextFieldStyle()); HStack { Button("Store in Keychain") { model.act(["action": "secret_set", "reference": reference, "value": secret], success: "Credential stored in Keychain"); secret = "" }.disabled(secret.isEmpty || reference == "upstream:"); Button("Delete credential", role: .destructive) { model.act(["action": "secret_delete", "reference": reference], success: "Credential deleted") }.disabled(reference == "upstream:") } }
-        Panel { Text("\(AppEnvironment.current.name) · \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development")").font(.headline); Text("Native SwiftUI interface · Rust MCP gateway\nLocal connectors and shared tool permissions.").foregroundStyle(Brand.muted); Text("This build is ad-hoc signed and not notarized. Real OAuth providers have not been certified. Legacy SSE-only connectors are unsupported.").font(.caption).foregroundStyle(Brand.muted); Button("Open project") { NSWorkspace.shared.open(URL(string: "https://github.com/computerlovetech/umbod")!) } }
+        Panel { Text("\(AppEnvironment.current.name) · \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development")").font(.headline); Text("Native SwiftUI interface · Shared Python backend\nLocal connectors and shared tool permissions.").foregroundStyle(Brand.muted); Text("This build is ad-hoc signed and not notarized. Real OAuth providers have not been certified. Legacy SSE-only connectors are unsupported.").font(.caption).foregroundStyle(Brand.muted); Button("Open project") { NSWorkspace.shared.open(URL(string: "https://github.com/computerlovetech/umbod")!) } }
     }
 }

@@ -3,6 +3,8 @@ import UmbodCore
 @main struct ContractTests {
     static func log(_ value: String) { FileHandle.standardOutput.write(Data((value + "\n").utf8)) }
     @MainActor static func main() async throws {
+        try updateTests()
+        if CommandLine.arguments.contains("--updates-only") { return }
         precondition(ActivationState([:]).stage == .choose)
         let journey: [String: Any] = ["client":"c", "server":"s", "configured":false, "activated":false]
         precondition(ActivationState(["activation":journey]).stage == .connect)

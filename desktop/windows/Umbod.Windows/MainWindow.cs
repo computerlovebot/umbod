@@ -6,7 +6,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Umbod.Core;
 namespace Umbod.Windows;
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
     public TabControl Tabs { get; } = new();
     private readonly AppProfile profile;
@@ -27,9 +27,11 @@ public sealed class MainWindow : Window
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly CancellationTokenSource lifetime = new();
     private bool busy, rendering;
+    private readonly bool smoke;
     public MainWindow(AppProfile profile, bool smoke = false)
     {
         this.profile = profile;
+        this.smoke = smoke;
         gateway = new(profile, Path.Combine(AppContext.BaseDirectory, "umbod-gateway.exe"), PrivateDirectory.Ensure);
         workspace = new(gateway);
         Title = profile.DisplayName;
@@ -47,6 +49,8 @@ public sealed class MainWindow : Window
         var refresh = Button("Refresh status", () => workspace.RefreshAsync(lifetime.Token));
         DockPanel.SetDock(refresh, Dock.Top);
         root.Children.Add(refresh);
+        DockPanel.SetDock(updatePrompt, Dock.Top);
+        root.Children.Add(updatePrompt);
         DockPanel.SetDock(message, Dock.Bottom);
         root.Children.Add(message);
         root.Children.Add(Tabs);
@@ -59,8 +63,8 @@ public sealed class MainWindow : Window
         tools.SelectionChanged += (_, _) => RenderTool();
         allowed.Click += async (_, _) => { if (!rendering && tools.SelectedItem is ToolRow tool) await Run(() => workspace.ActAsync(new() { ["action"] = "grant", ["tool"] = tool.Name, ["allow"] = allowed.IsChecked == true }, lifetime.Token)); };
         timer.Tick += async (_, _) => { if (!busy && gateway.Online) await Run(() => workspace.RefreshAsync(lifetime.Token)); };
-        Loaded += async (_, _) => { if (!smoke) { await Run(async () => { await gateway.StartAsync(lifetime.Token); await workspace.RefreshAsync(lifetime.Token); }); timer.Start(); } };
-        Closed += (_, _) => { timer.Stop(); lifetime.Cancel(); gateway.Dispose(); lifetime.Dispose(); };
+        Loaded += async (_, _) => { if (!smoke) { _ = CheckUpdates(false); updateTimer.Start(); await Run(async () => { await gateway.StartAsync(lifetime.Token); await workspace.RefreshAsync(lifetime.Token); }); timer.Start(); } };
+        Closed += (_, _) => { timer.Stop(); updateTimer.Stop(); lifetime.Cancel(); gateway.Dispose(); lifetime.Dispose(); };
     }
     private void AddTab(string title, StackPanel panel) => Tabs.Items.Add(new TabItem { Header = title, Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(24) } });
     private static TextBlock Text(string value, int size = 14) => new() { Text = value, FontSize = size, Margin = new Thickness(0, 4, 0, 12) };
@@ -144,6 +148,7 @@ public sealed class MainWindow : Window
     {
         var panel = new StackPanel();
         AddTab("Settings", panel);
+        BuildUpdates(panel);
         panel.Children.Add(Text("Gateway", 22));
         panel.Children.Add(lifecycle);
         var buttons = new WrapPanel();
