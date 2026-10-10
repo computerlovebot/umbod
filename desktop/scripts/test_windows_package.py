@@ -32,6 +32,8 @@ class PackageTests(unittest.TestCase):
         (self.publish / 'Umbod.Windows.dll').write_bytes(pe())
         (self.publish / 'Umbod.Windows.deps.json').write_text('{}')
         (self.publish / 'Umbod.Windows.runtimeconfig.json').write_text('{}')
+        (self.publish / 'THIRD-PARTY-NOTICES.txt').write_text('Synthetic fixture notices')
+        (self.publish / 'dependency-inventory.json').write_text('[]')
         self.backend = self.root / 'umbod-gateway.exe'
         self.backend.write_bytes(pe())
         self.output = self.root / 'output'

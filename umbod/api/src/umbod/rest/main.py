@@ -14,6 +14,9 @@ from umbod.rest.authentication import (
     AdminAuthorizationServiceFactory,
     JwtVerifierFactory,
 )
+from umbod.rest.authentication.authorization import JwtVerifier
+from umbod.rest.authentication.middleware import SuppliedJwtVerifierFactory
+from umbod.rest.users.deps import get_access_token_verifier
 from umbod.rest.authentication.csrf_middleware import AdminCookieCsrfMiddleware
 from umbod.rest.capability_descriptions import router as capability_description_router
 from umbod.rest.connectors import (
@@ -56,12 +59,13 @@ from umbod.rest.users.signing_keys import SigningKeyResolver
 class _CreateAppArguments:
     settings: APISettings | None
     connector_registrations: Sequence[ConnectorRegistration] | None
+    admin_verifier: JwtVerifier | None
 
 
 def _resolve_create_app_arguments(*args: Any, **kwargs: Any) -> _CreateAppArguments:
     if len(args) > 2:
         raise TypeError("create_app() takes from 0 to 2 positional arguments")
-    unknown_keywords = set(kwargs) - {"settings", "connector_registrations"}
+    unknown_keywords = set(kwargs) - {"settings", "connector_registrations", "admin_verifier"}
     if unknown_keywords:
         unknown_keyword = next(iter(unknown_keywords))
         raise TypeError(
@@ -79,7 +83,8 @@ def _resolve_create_app_arguments(*args: Any, **kwargs: Any) -> _CreateAppArgume
             "create_app() got multiple values for argument 'connector_registrations'"
         )
     return _CreateAppArguments(
-        settings=settings, connector_registrations=connector_registrations
+        settings=settings, connector_registrations=connector_registrations,
+        admin_verifier=cast(JwtVerifier | None, kwargs.get("admin_verifier")),
     )
 
 
@@ -95,13 +100,13 @@ def _attach_dependency_factories(
         return await call_next(request)
 
 
-def _attach_admin_authorization(app: FastAPI, settings: APISettings) -> None:
+def _attach_admin_authorization(app: FastAPI, settings: APISettings, verifier_factory: JwtVerifierFactory) -> None:
     if settings.admin_authentication.mode == "disabled":
         return
     app.add_middleware(
         AdminAuthenticationMiddleware,
         strategy=AdminAuthenticationStrategyFactory(
-            AdminAuthorizationServiceFactory(JwtVerifierFactory())
+            AdminAuthorizationServiceFactory(verifier_factory)
         ).create(settings),
     )
     if settings.admin_authentication.debug_enabled:
@@ -118,6 +123,7 @@ def _mount_admin_app(
     dependency_factories: ConnectorApiDependencyFactories,
     metrics_recorder: RestMetricsRecorder,
     app_config: AppConfig,
+    verifier_factory: JwtVerifierFactory,
 ) -> None:
     admin_router = APIRouter()
     admin_router.include_router(create_current_user_router())
@@ -135,7 +141,11 @@ def _mount_admin_app(
 
     _attach_dependency_factories(admin_app, dependency_factories)
     admin_app.dependency_overrides[get_app_config] = provide_app_config
-    _attach_admin_authorization(admin_app, settings)
+    def provide_access_token_verifier() -> JwtVerifier:
+        return verifier_factory.create(settings)
+
+    admin_app.dependency_overrides[get_access_token_verifier] = provide_access_token_verifier
+    _attach_admin_authorization(admin_app, settings, verifier_factory)
     admin_app.add_middleware(
         AdminCookieCsrfMiddleware,
         site_base_url=settings.endpoints.site_base_url,
@@ -166,6 +176,16 @@ def _create_lifespan(
     settings: APISettings,
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[dict[str, SigningKeyResolver]]]:
 
+    return _create_configured_lifespan(metrics_server, persistence_runtime, settings, True)
+
+
+def _create_configured_lifespan(
+    metrics_server: RestMetricsHttpServer,
+    persistence_runtime: PersistenceRuntime,
+    settings: APISettings,
+    metrics_enabled: bool,
+) -> Callable[[FastAPI], AbstractAsyncContextManager[dict[str, SigningKeyResolver]]]:
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[dict[str, SigningKeyResolver]]:
         resolver = (
@@ -183,14 +203,17 @@ def _create_lifespan(
         try:
             await persistence_runtime.readiness.ensure_ready()
             try:
-                await metrics_server.start()
+                if metrics_enabled:
+                    await metrics_server.start()
             except BaseException:
-                await metrics_server.stop()
+                if metrics_enabled:
+                    await metrics_server.stop()
                 raise
             try:
                 yield {"profile_signing_key_resolver": resolver}
             finally:
-                await metrics_server.stop()
+                if metrics_enabled:
+                    await metrics_server.stop()
                 flush_logging()
         finally:
             resolver.clear()
@@ -215,10 +238,14 @@ def create_app(*args: Any, **kwargs: Any) -> FastAPI:
     )
     app = LifespanRootApiAppFactory(
         app_settings,
-        lifespan=_create_lifespan(metrics_server, persistence_runtime, app_settings),
+        lifespan=_create_configured_lifespan(metrics_server, persistence_runtime, app_settings, app_settings.rest.metrics_enabled),
     ).create()
+    verifier_factory = (
+        SuppliedJwtVerifierFactory(create_app_arguments.admin_verifier)
+        if create_app_arguments.admin_verifier is not None else JwtVerifierFactory()
+    )
     _mount_admin_app(
-        app, app_settings, dependency_factories, metrics_recorder, app_settings
+        app, app_settings, dependency_factories, metrics_recorder, app_settings, verifier_factory
     )
     _mount_system_app(app, dependency_factories)
     install_telemetry_receiver(app, app_settings)

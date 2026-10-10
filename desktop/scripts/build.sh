@@ -9,11 +9,28 @@ case "$CHANNEL" in
   release) APP_NAME="Umbod"; BUNDLE_ID="app.umbod.desktop"; APP="$OUTPUT/Umbod-$VERSION.app" ;;
   *) echo "Usage: scripts/build.sh [dev|release]" >&2; exit 1 ;;
 esac
-export PATH="$HOME/.cargo/bin:$PATH"
-cargo build --locked --release
+FINAL_APP="$APP"
+APP="${FINAL_APP}.building-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+trap 'rm -rf "$APP"' EXIT
 swift build --package-path native -c release --product Umbod
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp target/release/umbod-gateway "$APP/Contents/MacOS/umbod-gateway"
+scripts/bundle-python.sh "$APP/Contents/Resources"
+python3 -c 'import uuid; print(uuid.uuid4())' > "$APP/Contents/Resources/runtime-id"
+cat > "$APP/Contents/MacOS/umbod-desktop" <<'LAUNCHER'
+#!/bin/sh
+SELF="$0"
+while [ -L "$SELF" ]; do
+    LINK="$(readlink "$SELF")"
+    case "$LINK" in /*) SELF="$LINK" ;; *) SELF="$(dirname "$SELF")/$LINK" ;; esac
+done
+HERE="$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)"
+export PYTHONDONTWRITEBYTECODE=1
+unset PYTHONHOME PYTHONPATH
+exec "$HERE/../Resources/python/bin/python3" -I -B -m umbod_desktop.main "$@"
+LAUNCHER
+chmod +x "$APP/Contents/MacOS/umbod-desktop"
+# Existing agent configurations can keep the old command path; no Rust is bundled.
+cp "$APP/Contents/MacOS/umbod-desktop" "$APP/Contents/MacOS/umbod-gateway"
 cp native/.build/release/Umbod "$APP/Contents/MacOS/Umbod"
 swift scripts/icon.swift "$OUTPUT/Umbod-$CHANNEL.iconset" "$CHANNEL"
 iconutil -c icns "$OUTPUT/Umbod-$CHANNEL.iconset" -o "$APP/Contents/Resources/UmbodBrand.icns"
@@ -39,6 +56,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 # Local/CI builds never search or use a developer's signing identity.
 # Production publishing is disabled by release.py until verified signing exists.
+while IFS= read -r -d '' binary; do
+    if file "$binary" | grep -q 'Mach-O'; then codesign --force --sign - "$binary"; fi
+done < <(find "$APP/Contents/Resources/python" -type f -print0)
+codesign --force --sign - "$APP/Contents/MacOS/umbod-desktop"
 codesign --force --sign - "$APP/Contents/MacOS/umbod-gateway"
 codesign --force --sign - "$APP"
 printf 'Ad-hoc signed; NOT notarized; UNSIGNED PRERELEASE; Gatekeeper acceptance NOT verified\n' > "$OUTPUT/SIGNING-$CHANNEL.txt"
@@ -46,4 +67,11 @@ if [[ "$CHANNEL" == "release" ]]; then cp "$OUTPUT/SIGNING-release.txt" "$OUTPUT
 codesign --verify --deep --strict "$APP"
 plutil -lint "$APP/Contents/Info.plist"
 scripts/ui-smoke.sh "$APP"
-printf 'Built %s\n' "$APP"
+if [[ -e "$FINAL_APP" ]]; then
+    PREVIOUS="${FINAL_APP}.previous-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+    mv "$FINAL_APP" "$PREVIOUS"
+fi
+mv "$APP" "$FINAL_APP"
+trap - EXIT
+if [[ -n "${PREVIOUS:-}" ]]; then rm -rf "$PREVIOUS"; fi
+printf 'Built %s\n' "$FINAL_APP"

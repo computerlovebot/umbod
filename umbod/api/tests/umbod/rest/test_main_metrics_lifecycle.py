@@ -152,3 +152,20 @@ def test_admin_metrics_middleware_wraps_authentication(
         )
     )
     assert metrics_index < authentication_index
+
+
+def test_embedded_host_can_disable_metrics_without_changing_server_constructor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    servers: list[RecordingMetricsServer] = []
+
+    def create_server(recorder: object, port: int) -> RecordingMetricsServer:
+        server = RecordingMetricsServer(recorder, port)
+        servers.append(server)
+        return server
+
+    monkeypatch.setattr('umbod.rest.main.RestMetricsHttpServer', create_server)
+    settings = APISettings(admin_authentication={'mode': 'simulation'}, connector_store={'type': 'sqlite', 'sqlite_path': str(tmp_path / 'embedded.sqlite3')}, rest={'metrics_enabled': False})
+    with TestClient(create_app(settings=settings, connector_registrations=[])) as client:
+        assert client.get('/api/system/health').status_code == 200
+    assert len(servers) == 1
+    assert servers[0].start_count == 0
+    assert servers[0].stop_count == 0

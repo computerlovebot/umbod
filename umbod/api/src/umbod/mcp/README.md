@@ -47,3 +47,7 @@ File-input connector tools keep uploaded bytes only for the current app-backend 
 ### `logging/`, `metrics/`, `middleware/`, and `tools/`
 
 **Read when working with:** Audit behavior, instrumentation, protocol request handling, or observed registration of internal FastMCP tools. `tools/registration.py` preserves callable-derived FastMCP metadata while observing the complete `FunctionTool.run` lifecycle; `tools/invocation/` contains shared invocation lifecycle and telemetry behavior.
+
+## Embedded host composition
+
+`PublicAppConfig.invocation_log_sink` optionally supplies a deployment-owned completed-invocation sink; the normal structured logger remains the default. `live_permission_updates.py` reads group permissions from the shared database when SQL messaging is selected, or the system HTTP API for HTTP messaging. This allows embedded REST/MCP applications to synchronize permissions without exposing an unauthenticated internal API.

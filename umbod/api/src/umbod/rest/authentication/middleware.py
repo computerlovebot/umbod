@@ -164,3 +164,13 @@ class AdminAuthenticationMiddleware(BaseHTTPMiddleware):
         if authentication_response is not None:
             return authentication_response
         return await call_next(request)
+
+
+class SuppliedJwtVerifierFactory(JwtVerifierFactory):
+    """Explicit deployment composition; operator auth recipes stay unchanged."""
+
+    def __init__(self, verifier: JwtVerifier) -> None:
+        self.verifier = verifier
+
+    def create(self, settings: APISettingsPort) -> JwtVerifier:
+        return self.verifier

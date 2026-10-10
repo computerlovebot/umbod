@@ -10,5 +10,5 @@ public enum AppEnvironment: String, Sendable {
     public var dataDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/\(name)")
     }
-    public var gatewayExecutable: URL { dataDirectory.appendingPathComponent("bin/umbod-gateway") }
+    public var gatewayExecutable: URL { dataDirectory.appendingPathComponent("bin/umbod-desktop") }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import UmbodCore
 @main struct ContractTests {
+    static func log(_ value: String) { FileHandle.standardOutput.write(Data((value + "\n").utf8)) }
     @MainActor static func main() async throws {
         precondition(ActivationState([:]).stage == .choose)
         let journey: [String: Any] = ["client":"c", "server":"s", "configured":false, "activated":false]
@@ -9,7 +10,7 @@ import UmbodCore
         precondition(ActivationState(["activation":journey,"statuses":["s":"Connected"],"allowed_tools":["s.search_issues"]]).stage == .configure)
         precondition(ActivationState(["activation":["client":"c","server":"s","configured":true,"activated":false],"statuses":["s":"Connected"],"allowed_tools":["s.search_issues"]]).stage == .tryPrompt)
         precondition(ActivationState(["activation":["client":"c","server":"s","configured":true,"activated":true]]).stage == .activated)
-        print("PASS: native activation stages depend on backend facts, never copied prompt")
+        log("PASS: native activation stages depend on backend facts, never copied prompt")
         let isolated = URL(fileURLWithPath:"/private/tmp/umbod-fixture")
         precondition(ClientConfiguration.destination(home:URL(fileURLWithPath:"/Users/not-real"),dataDirectory:isolated).path == "/private/tmp/umbod-fixture/fixture-claude.json")
         var server = ServerDraft()
@@ -21,72 +22,106 @@ import UmbodCore
         precondition(value["args"] as? [String] == ["/tmp/fixture.py", "--flag"])
         precondition(value["oauth"] as? Bool == false)
         let config = try ClientConfiguration.bridge(bundlePath: "/Applications/Umbod.app")
-        precondition(config.contains("/Applications/Umbod.app/Contents/MacOS/umbod-gateway"))
+        precondition(config.contains("/Applications/Umbod.app/Contents/MacOS/umbod-desktop"))
         precondition(!config.contains("token"))
         precondition(!config.contains("alice"))
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("umbod-test-" + UUID().uuidString)
         let backend = Backend()
-        let executable = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("target/debug/umbod-gateway")
-        try await backend.start(executable: executable, directory: directory)
+        let desktop = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let app = ProcessInfo.processInfo.environment["UMBOD_TEST_APP"].map { URL(fileURLWithPath: $0) } ?? desktop.appendingPathComponent("dist/Umbod Dev.app")
+        let executable = app.appendingPathComponent("Contents/MacOS/umbod-desktop")
+        let profile = try String(contentsOf: app.appendingPathComponent("Contents/Resources/umbod-profile"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        let environment: AppEnvironment = profile == "release" ? .release : .dev
+        try await backend.start(executable: executable, directory: directory, environment: environment, testCredentials: true)
         let status = try await backend.request(["action": "status"])
         precondition(status["servers"] is [Any])
         precondition(backend.gateway.hasPrefix("127.0.0.1:"))
-        let conflictDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let conflictDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("umbod-test-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: conflictDirectory, withIntermediateDirectories: true)
         let port = Int(backend.gateway.split(separator: ":").last!)!
-        try JSONSerialization.data(withJSONObject:["gateway_port":port]).write(to:conflictDirectory.appendingPathComponent("config.json"))
+        try JSONSerialization.data(withJSONObject:["port":port]).write(to:conflictDirectory.appendingPathComponent("python-endpoint.json"))
         let conflict = Backend()
         var portError = false
-        do { try await conflict.start(executable:executable,directory:conflictDirectory) }
+        do { try await conflict.start(executable:executable,directory:conflictDirectory, environment:environment, testCredentials: true) }
         catch { portError = error.localizedDescription.contains("port") }
         conflict.stop()
         try? FileManager.default.removeItem(at:conflictDirectory)
         precondition(portError, "Native startup must explain the saved-port conflict")
-        print("PASS: native startup exposes actionable saved-port conflict")
-        server.arguments = FileManager.default.currentDirectoryPath + "/scripts/fixture_stdio.py"
+        log("PASS: native startup exposes actionable saved-port conflict")
+        server.command = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/python/bin/python3").path
+        server.arguments = "-B\n" + desktop.appendingPathComponent("scripts/fixture_stdio.py").path
         let saved = try await backend.request(["action": "server_save", "server": try server.payload()])
         let savedServer = saved["server"] as! [String: Any]
         _ = try await backend.request(["action": "connect", "id": savedServer["id"]!])
         let connected = try await backend.request(["action": "status"])
         precondition((connected["tools"] as? [Any])?.count == 2)
         let connection = try await backend.request(["action": "connection_setup"])
-        let connectionID = connection["id"] as! String
+        let connectionID = connection["token"] as! String
         let again = try await backend.request(["action": "connection_setup"])
-        precondition(again["id"] as? String == connectionID)
-        let toolName = ((connected["tools"] as! [[String: Any]])[0])["name"] as! String
+        precondition(again["token"] as? String == connectionID)
+        let toolName = (connected["tools"] as! [[String: Any]]).first { ($0["name"] as? String ?? "").hasSuffix(".echo") }!["name"] as! String
         _ = try await backend.request(["action": "grant", "tool": toolName, "allow": true])
         let allowed = try await backend.request(["action": "status"])
         precondition((allowed["allowed_tools"] as? [String])?.contains(toolName) == true)
+        let agent = Process()
+        agent.executableURL = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/python/bin/python3")
+        agent.arguments = ["-I", "-B", "-c", """
+        import asyncio, sys
+        from fastmcp import Client
+        from fastmcp.client.transports import StdioTransport
+        async def main():
+            async with Client(StdioTransport(command=sys.argv[1], args=['bridge', 'legacy-fixture-id', '--profile', sys.argv[3], '--data-dir', sys.argv[2], '--test-credentials']), mode='legacy') as client:
+                async with asyncio.timeout(20):
+                    while not (tools := await client.list_tools()):
+                        await asyncio.sleep(.1)
+                result = await client.call_tool(tools[0].name, {'text': 'native-python-fixture'})
+                assert 'native-python-fixture' in str(result)
+        asyncio.run(main())
+        """, executable.path, directory.path, profile]
+        agent.standardOutput = FileHandle.nullDevice
+        try agent.run(); agent.waitUntilExit()
+        precondition(agent.terminationStatus == 0, "Packaged agent bridge must call the enabled fixture tool")
+        let used = try await backend.request(["action": "status"])
+        let usage = used["tool_usage"] as! [String: [String: Int]]
+        precondition(usage[toolName]?["succeeded"] == 1)
+        log("PASS: packaged Python agent bridge calls enabled stdio tool and records usage")
         _ = try await backend.request(["action": "grant", "tool": toolName, "allow": false])
-        _ = try await backend.request(["action": "client_remove", "id": connectionID])
-        print("PASS: connector save → real stdio discovery → shared connection → global permission → revocation")
+        log("PASS: connector save → real stdio discovery → shared connection → global permission → revocation")
         backend.stop()
         precondition(!backend.isRunning)
-        try? FileManager.default.removeItem(at: directory)
-        print("PASS: native backend launch, authenticated API contract, owner shutdown")
+        log("PASS: native backend launch, authenticated API contract, owner shutdown")
         let devConfig = try ClientConfiguration.bridge(bundlePath: "/tmp/Umbod Dev.app", environment: .dev, executable: AppEnvironment.dev.gatewayExecutable)
         precondition(devConfig.contains("umbod-dev"))
         precondition(devConfig.contains("--profile"))
         precondition(AppEnvironment.dev.dataDirectory != AppEnvironment.release.dataDirectory)
-        let persistentDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let persistentDirectory = directory
         let firstUI = Backend()
-        try await firstUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: .dev)
+        try await firstUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: environment, testCredentials: true)
+        _ = try await firstUI.request(["action": "grant", "tool": toolName, "allow": true])
         let persistentPID = firstUI.processID
         let persistentEndpoint = firstUI.gateway
         firstUI.stop() // UI detaches; the gateway remains available.
         let secondUI = Backend()
-        try await secondUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: .dev)
+        try await secondUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: environment, testCredentials: true)
         precondition(secondUI.processID == persistentPID)
         precondition(secondUI.gateway == persistentEndpoint)
         precondition(!secondUI.updateAvailable)
         _ = try await secondUI.request(["action":"status"])
         try await secondUI.shutdown()
-        try await secondUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: .dev)
+        try await secondUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: environment, testCredentials: true)
         precondition(secondUI.processID != persistentPID)
         precondition(secondUI.gateway == persistentEndpoint)
+        let restored = try await secondUI.request(["action": "status"])
+        precondition((restored["allowed_tools"] as? [String])?.contains(toolName) == true)
+        let restoredAgent = Process()
+        restoredAgent.executableURL = agent.executableURL
+        restoredAgent.arguments = agent.arguments
+        restoredAgent.standardOutput = FileHandle.nullDevice
+        try restoredAgent.run(); restoredAgent.waitUntilExit()
+        precondition(restoredAgent.terminationStatus == 0, "Persisted permissions and transport must survive restart")
         try await secondUI.shutdown()
         try FileManager.default.removeItem(at: persistentDirectory)
-        print("PASS: persistent gateway survives UI detach, reattaches to same PID, restarts on same endpoint")
-        print("PASS: Swift server contract and secret-free bridge configuration")
+        log("PASS: persistent gateway survives UI detach, reattaches to same PID, restarts on same endpoint")
+        log("PASS: Swift server contract and secret-free bridge configuration")
     }
 }

@@ -80,7 +80,7 @@ def _context() -> SimpleNamespace:
     return SimpleNamespace(
         settings=SimpleNamespace(
             endpoints=SimpleNamespace(mcp_base_url='http://mcp'),
-            mcp=SimpleNamespace(metrics_port=0),
+            mcp=SimpleNamespace(metrics_port=0, metrics_enabled=True),
         ),
         connector_runtime=SimpleNamespace(
             connector_tool_mappings=[

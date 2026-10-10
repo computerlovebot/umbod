@@ -91,7 +91,7 @@ from umbod.core.connectors.downstream_mcp.adapters.settings import (
 )
 from umbod.mcp.downstream_mcp_connectors.coordinator import DownstreamDiscoveryAdapters, DownstreamDiscoveryCoordinator, DownstreamDiscoveryCoordinatorOptions, DownstreamDiscoveryStores, create_downstream_discovery_coordinator
 from umbod.mcp.downstream_mcp_connectors.provider import ConnectorAwareDownstreamMcpToolProvider, GroupDownstreamToolPermissionPolicy, NativeCapabilityProviderView, UnrestrictedDownstreamToolPermissionPolicy
-from umbod.mcp.live_permission_updates import GROUP_PERMISSION_CHANGE_POLL_BATCH_LIMIT, GROUP_PERMISSION_CHANGE_POLL_INTERVAL_SECONDS, GroupPermissionChangePollingSynchronizer, GroupPermissionStateReloader, HttpGroupPermissionReader, RuntimeGroupPermissionSynchronizer
+from umbod.mcp.live_permission_updates import DatabaseGroupPermissionReader, GROUP_PERMISSION_CHANGE_POLL_BATCH_LIMIT, GROUP_PERMISSION_CHANGE_POLL_INTERVAL_SECONDS, GroupPermissionChangePollingSynchronizer, GroupPermissionStateReloader, HttpGroupPermissionReader, RuntimeGroupPermissionSynchronizer
 from umbod.core.connectors.openapi.execution import OutboundHttpClientFactory
 from umbod.core.permissions import InMemoryGroupConnectorToolPermissions, connector_tool_permission_check
 from umbod.mcp.openapi_connectors import DatabaseGroupPermissionReaderFactory, OutboundHttpClientFactoryPort, build_openapi_codemode_executor
@@ -122,12 +122,14 @@ class OpenApiRuntimeAdapters:
 async def build_mcp(settings: MCPAppSettings, auth_provider: MCPAuthProvider | None, runtime: ConnectorRuntime, persistence_runtime: PersistenceRuntime, *runtime_state: RuntimeStateArgument) -> FastMCP:
     return await build_mcp_with_openapi_adapters(settings, auth_provider, runtime, runtime_state, _default_openapi_runtime_adapters(settings), persistence_runtime)
 
-async def build_mcp_with_openapi_adapters(settings: MCPAppSettings, auth_provider: MCPAuthProvider | None, runtime: ConnectorRuntime, runtime_state: tuple[RuntimeStateArgument, ...], openapi_adapters: OpenApiRuntimeAdapters, persistence_runtime: PersistenceRuntime) -> FastMCP:
+async def build_mcp_with_openapi_adapters(settings: MCPAppSettings, auth_provider: MCPAuthProvider | None, runtime: ConnectorRuntime, runtime_state: tuple[RuntimeStateArgument, ...], openapi_adapters: OpenApiRuntimeAdapters, persistence_runtime: PersistenceRuntime, *invocation_log_sinks: McpToolInvocationLogSink) -> FastMCP:
     (requested_tool_state, group_permission_runtime_state) = _resolve_runtime_state(runtime_state)
     connector_tool_runtime_state_store = requested_tool_state if requested_tool_state is not None else _default_connector_tool_runtime_state_store(runtime)
     audit_recorder = create_default_mcp_audit_recorder(settings.runtime.app_name)
     metrics_recorder = PrometheusMcpMetricsRecorder()
-    invocation_log_sink = create_default_mcp_tool_invocation_log_sink()
+    if len(invocation_log_sinks) > 1:
+        raise TypeError("At most one invocation log sink may be supplied")
+    invocation_log_sink = invocation_log_sinks[0] if invocation_log_sinks else create_default_mcp_tool_invocation_log_sink()
     tool_invocation_logger = create_default_connector_tool_invocation_logger(invocation_log_sink, audit_recorder)
     middleware: list[Middleware] = [McpAuditMiddleware(recorder=audit_recorder, identity_source=McpAuditIdentityAdapter(), exposure_mode=settings.mcp.connector_tool_exposure_mode)]
     if group_permission_runtime_state is not None:
@@ -280,7 +282,7 @@ async def create_runtime_context(config: PublicAppConfig) -> PublicAppRuntimeCon
         group_permission_runtime_state = InMemoryGroupConnectorToolPermissions(group_claim_fields=(config.settings.mcp.permission_group_claim,))
     auth_provider = config.auth_provider if config.auth_provider is not None else MCPAuthProviderFactory().create(config.settings)
     persistence_runtime = config.persistence_runtime
-    mcp = await build_mcp_with_openapi_adapters(config.settings, auth_provider, config.connector_runtime, (connector_tool_runtime_state_store, group_permission_runtime_state), _default_openapi_runtime_adapters(config.settings), persistence_runtime)
+    mcp = await build_mcp_with_openapi_adapters(config.settings, auth_provider, config.connector_runtime, (connector_tool_runtime_state_store, group_permission_runtime_state), _default_openapi_runtime_adapters(config.settings), persistence_runtime, config.invocation_log_sink or create_default_mcp_tool_invocation_log_sink())
     metrics_recorder = mcp.metrics_recorder
     if not isinstance(metrics_recorder, PrometheusMcpMetricsRecorder):
         raise TypeError('MCP metrics recorder must be PrometheusMcpMetricsRecorder')
@@ -422,7 +424,8 @@ def create_group_permission_runtime_synchronizer(context: PublicAppRuntimeContex
     runtime_permissions = context.group_permission_runtime_state
     if runtime_permissions is None:
         raise ValueError("Group permission synchronization requires group permission runtime state")
-    return RuntimeGroupPermissionSynchronizer(permission_state_reloader=GroupPermissionStateReloader(permission_reader=HttpGroupPermissionReader(f"{api_base_url.rstrip('/')}/system"), runtime_permissions=runtime_permissions), client_notifier=registry.client_notifier)
+    reader = DatabaseGroupPermissionReader(context.persistence_runtime.database) if context.settings.mcp.messaging_transport == 'sql' else HttpGroupPermissionReader(f"{api_base_url.rstrip('/')}/system")
+    return RuntimeGroupPermissionSynchronizer(permission_state_reloader=GroupPermissionStateReloader(permission_reader=reader, runtime_permissions=runtime_permissions), client_notifier=registry.client_notifier)
 
 def create_group_permission_change_synchronizer(context: PublicAppRuntimeContext, api_base_url: str, interval_seconds: float, batch_limit: int) -> GroupPermissionChangePollingSynchronizer:
     adapters = McpMessagingAdapterFactory(context.settings.mcp.messaging_transport, api_base_url, context.persistence_runtime.database)
@@ -438,8 +441,9 @@ def _create_public_http_lifespan(context: PublicAppRuntimeContext) -> object:
             async with AsyncExitStack() as stack:
                 await stack.enter_async_context(context.http_app.lifespan(context.http_app))
                 metrics_server = McpMetricsHttpServer(context.metrics_recorder, context.settings.mcp.metrics_port, '0.0.0.0')
-                await metrics_server.start()
-                stack.push_async_callback(metrics_server.stop)
+                if context.settings.mcp.metrics_enabled:
+                    await metrics_server.start()
+                    stack.push_async_callback(metrics_server.stop)
                 synchronizer_tasks = [asyncio.create_task(synchronizer.run()) if synchronizer is not None else None for synchronizer in synchronizers]
                 downstream_coordinator: DownstreamDiscoveryCoordinator | None = getattr(context.mcp, 'downstream_mcp_discovery_coordinator', None)
                 if downstream_coordinator is not None:

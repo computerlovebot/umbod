@@ -14,6 +14,10 @@ $repo = Split-Path $PSScriptRoot -Parent
 if (!$OutputDirectory) { $OutputDirectory = Join-Path $repo 'dist' }
 $publish = & (Join-Path $PSScriptRoot 'build-windows.ps1') -Channel $Channel -OutputDirectory $OutputDirectory `
     -Dotnet $Dotnet -Cargo $Cargo -GatewayExecutable $GatewayExecutable
+# Collect exact locked Rust dependencies and preserve published .NET runtime notices.
+$cargoCommand = if ($Cargo) { $Cargo } else { 'cargo' }
+& $Python (Join-Path $PSScriptRoot 'dependency-notices.py') windows $publish --cargo $cargoCommand --publish $publish
+if ($LASTEXITCODE -ne 0) { throw "Dependency notices failed with exit code $LASTEXITCODE" }
 # Package inputs contain only freshly published files. Move the two package-managed inputs
 # to sibling staging so the packager can reject accidentally included runtime/profile files.
 $stagingGateway = Join-Path (Split-Path $publish -Parent) ('gateway-' + [Guid]::NewGuid().ToString('N') + '.exe')

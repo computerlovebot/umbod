@@ -31,7 +31,8 @@ def main():
     parser.add_argument('--channel', choices=('dev', 'release'), default='dev')
     args = parser.parse_args()
     for name in ('Umbod.Windows.exe', 'Umbod.Windows.dll', 'Umbod.Windows.deps.json',
-                 'Umbod.Windows.runtimeconfig.json'):
+                 'Umbod.Windows.runtimeconfig.json', 'THIRD-PARTY-NOTICES.txt',
+                 'dependency-inventory.json'):
         if not (args.publish / name).is_file():
             raise ValueError(f'Missing required UI build output: {name}')
     windows_x64(args.publish / 'Umbod.Windows.exe')

@@ -1,3 +1,5 @@
+from umbod.core.persistence import Database
+from umbod.core.permissions.factories import create_group_permission_store
 import asyncio
 import json
 import logging
@@ -141,6 +143,23 @@ class HttpGroupPermissionChangeStreamReader:
         with urlopen(url, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return self._events_adapter.validate_python(payload)
+
+
+class DatabaseGroupPermissionReader:
+    def __init__(self, database: Database) -> None:
+        self._database = database
+
+    async def list_group_identifiers(self) -> tuple[GroupPermissionSummary, ...]:
+        store = await create_group_permission_store(self._database)
+        return await store.list_group_identifiers()
+
+    async def list_group_permissions(self, group_id: str) -> GroupPermissionSet:
+        store = await create_group_permission_store(self._database)
+        return await store.list_group_permissions(group_id)
+
+    async def list_all_group_permissions(self) -> tuple[GroupPermissionSet, ...]:
+        store = await create_group_permission_store(self._database)
+        return await store.list_all_group_permissions()
 
 
 class HttpGroupPermissionReader:

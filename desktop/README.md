@@ -1,26 +1,21 @@
 # Umbod Desktop
 
-Native SwiftUI (Apple Silicon, macOS 14+) and WPF (Windows 10/11 x64) interfaces share a Rust MCP gateway. Desktop is a single-user, local-first application with tool permissions shared across connected agent clients. It is independent of the Kubernetes services in `umbod/` and does not require their deployment.
+The native SwiftUI app (Apple Silicon, macOS 14+) uses the shared Python REST/MCP backend through a desktop host in `python/`. WPF (Windows 10/11 x64) continues to use the Rust gateway. Desktop is a single-user, local-first application with tool permissions shared across connected agent clients. macOS bundles its Python interpreter and dependencies; running the app requires neither Docker nor a separately installed Python. It does not require a Kubernetes deployment.
 
 No public desktop release is advertised yet. The website deliberately offers self-hosting until a verified desktop release manifest is reviewed and applied. Local builds and the manual release workflow currently support **unsigned prereleases only**: macOS is ad-hoc signed and not notarized; Windows is unsigned. Do not disable OS security protections to run a build.
 
 ## Build and test
 
-Run from the monorepo root unless a command explicitly changes directory. Prerequisites: stable Rust (including rustfmt and Clippy), Python 3.11+, Swift 6 and Apple developer tools on macOS; .NET 8 SDK and PowerShell 7 on Windows. No command below installs or launches the production app.
+Run from the monorepo root unless a command explicitly changes directory. Build prerequisites: uv, Python 3.11+, Swift 6 and Apple developer tools on macOS; stable Rust (including rustfmt and Clippy), .NET 8 SDK and PowerShell 7 on Windows. uv installs the pinned CPython 3.14.3 build runtime. No command below installs or launches the production app.
 
 ```sh
 cd desktop
-export PATH="$HOME/.cargo/bin:$PATH"
-cargo test --locked
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-swift build --package-path native
-swift run --package-path native UmbodTests
+bash scripts/verify.sh          # Python tests, dev bundle, Swift contracts, native smoke
 bash scripts/build.sh           # dist/Umbod Dev.app, ad-hoc signed
 bash scripts/package.sh         # dist/Umbod-<VERSION>-arm64.dmg
 ```
 
-The Swift tests are an executable assertion harness, not `swift test`. Tests use temporary directories and randomly named fixture credentials in the OS vault, and require local socket and vault access. Do not run them against installed app data. `scripts/verify.sh` runs the Mac checks. Optional `scripts/native-smoke.py` requires a built app and launches only that app with temporary data; it never launches `/Applications/Umbod.app`.
+The Swift tests are an executable assertion harness, not `swift test`. Tests use temporary directories and an explicitly selected fixture credential store, and require local socket access. Routine Mac tests never access the user’s Keychain. Real app profiles continue to require Keychain, with no plaintext fallback. Do not run them against installed app data. `scripts/verify.sh` runs the Mac checks. Optional `scripts/native-smoke.py` requires a built app and launches only that app with temporary data; it never launches `/Applications/Umbod.app`.
 
 Windows (from `desktop/` in PowerShell):
 
@@ -48,13 +43,16 @@ cd website && bun run build
 
 Add local executable or remote Streamable HTTP connectors, rediscover their tools, then explicitly enable tools. New tools start disabled. Permission changes apply to subsequent calls from every connected client. Settings → MCP provides bridge configuration. Credentials remain in macOS Keychain or Windows Credential Manager; there is no plaintext fallback.
 
+On macOS, first launch imports existing `config.json` with a resumable journal and preserves the source and a `config.before-python.json` backup. Existing Keychain entries are retained. Import failures remain visible and retry on reopening/restarting; restore missing credentials or executables first. The saved MCP port and existing agent token hashes remain valid. Shared-backend tool names can differ, so clients should refresh their tool catalogs. The old `umbod-gateway` command remains a Python launcher for existing bridge configurations.
+
 Closing the UI leaves the background gateway running. Settings can stop or restart it. Development and release profiles have separate data and vault namespaces (`app.umbod.desktop.dev` and `app.umbod.desktop`). Builds do not migrate, reset, or install app data. There is no automatic update or login supervisor.
 
 OAuth supports native public clients with loopback callbacks, discovery, PKCE and refresh. Real OAuth providers are not certified. Legacy standalone SSE upstreams, resources, prompts, sampling, and tool argument-level policies are unsupported. Desktop does not claim the Kubernetes edition's organization identity or group administration capabilities.
 
 ## Code and release index
 
-- `backend/src/`: Rust gateway, profiles, platform adapters, client setup and OAuth; `backend/tests/`: integration tests.
+- [`python/`](python/README.md): macOS host, transport adapters, Keychain, migration and tests; reuses `umbod/api` and `packages/umbod-sdk`.
+- `backend/src/`: Windows Rust gateway, profiles, platform adapters, client setup and OAuth; `backend/tests/`: integration tests.
 - `native/`: SwiftUI app and Swift contract/lifecycle tests.
 - `windows/`: shared .NET Core contracts, Core tests, and WPF app.
 - `scripts/`: local builds, packaging, isolated fixtures, and release policy/metadata.
@@ -62,3 +60,5 @@ OAuth supports native public clients with loopback callbacks, discovery, PKCE an
 - [Release procedure](docs/RELEASING.md), [manifest application](docs/APPLY-MANIFEST.md), and [import provenance and audit](docs/PROVENANCE.md).
 
 The [upstream Windows run](https://github.com/kasperjunge/umbod-desktop/actions/runs/37907078176) is historical source evidence supplied for this import. It is **not** a CI result for this target repository or these integration changes.
+
+Release packaging collects dependency inventories and notices through `scripts/dependency-notices.py`; pinned supplemental sources are documented in `licenses/README.md`. `scripts/install-smoke.py` installs the Mac DMG into disposable storage and verifies the packaged connector/agent flow, native window lifecycle, and signature integrity before and after execution. It never uses the login Keychain.

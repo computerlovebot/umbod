@@ -75,3 +75,7 @@ and multi-worker sign-in coordination remain undecided.
 ### `users/`
 
 **Read when working with:** Current-user identity, optional profile enrichment, or claim mapping. `profiles.py` defines the typed provider port and in-memory adapter; `mapping.py` normalizes literal claims; `id_token.py` verifies and binds enrichment; `current_user.py` coordinates the unchanged response; `deps.py` assembles request-scoped providers. `signing_keys.py` defines the infrastructure resolver/source seams; `jwks.py` implements a protected shared cache owned by the root app lifespan. The lifespan yields a state mapping that Starlette propagates into `request.state`; typed mounted-admin dependencies retrieve the resolver there without storing dependencies on `app.state`. Profile key fetches run in the synchronous `/users` handler's threadpool, not on the event loop. `authentication/deps.py` retrieves middleware-verified access claims. Authentication debug logging records only fixed credential-presence booleans, never header values or decoded claims.
+
+## Embedded host composition
+
+`create_app(settings, admin_verifier=...)` supplies the same deployment verifier to authentication middleware and the request-scoped current-user dependency. Normal verifier selection and profile enrichment remain unchanged. The macOS host owns its loopback bearer-token policy outside this package.
