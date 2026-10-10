@@ -64,6 +64,10 @@ jobs:
         run: |
           version="$(python3 scripts/release.py version)"
           python3 scripts/install-smoke.py "dist/Umbod-$version-arm64.dmg"
+      - name: Keychain persistence in a disposable CI keychain
+        run: |
+          version="$(python3 scripts/release.py version)"
+          python3 scripts/keychain-smoke.py "dist/Umbod-$version.app"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-macos-arm64
