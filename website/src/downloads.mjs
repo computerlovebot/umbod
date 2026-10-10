@@ -39,8 +39,8 @@ export function selectDownload(manifest, platform) {
   try {
     const m = validateManifest(manifest);
     if (m.status !== 'available') return { recommended: null, downloads: [] };
-    return { recommended: platform === 'macos-arm64' ? platform : null,
-      downloads: Object.entries(PLATFORMS).filter(([id]) => id === 'macos-arm64').map(([id, info]) => ({id, ...info, ...m.assets[id], version: m.version})) };
+    return { recommended: Object.hasOwn(PLATFORMS, platform) ? platform : null,
+      downloads: Object.entries(PLATFORMS).map(([id, info]) => ({id, ...info, ...m.assets[id], version: m.version})) };
   } catch { return { recommended: null, downloads: [] }; }
 }
 export async function loadManifest(fetcher = globalThis.fetch) {
@@ -52,18 +52,22 @@ export async function loadManifest(fetcher = globalThis.fetch) {
 }
 export function renderDownloads(manifest, platform) {
   const { downloads } = selectDownload(manifest, platform);
-  const mac = downloads[0];
+  const mac = downloads.find(item => item.id === 'macos-arm64');
+  const windows = downloads.find(item => item.id === 'windows-x64');
   let state = 'Release pending';
   try { if (validateManifest(manifest).status !== 'unavailable') state = 'Temporarily unavailable'; } catch { state = 'Temporarily unavailable'; }
   const macRow = mac
     ? `<a class="platform-row platform-ready" href="${mac.url}"><span><strong>macOS</strong><small>Apple Silicon · macOS 14 or later</small></span><span class="platform-action">Download DMG <span aria-hidden="true">↓</span></span></a>`
     : `<div class="platform-row"><span><strong>macOS</strong><small>Apple Silicon · macOS 14 or later</small></span><span class="platform-status">${state}</span></div>`;
-  const upcoming = [['macOS Intel', 'Intel-based Macs'], ['Windows', 'Windows PCs'], ['Linux', 'Linux desktops']];
-  const grid = '<div class="platform-grid">' + macRow + upcoming.map(([name, detail]) => `<div class="platform-row platform-upcoming"><span><strong>${name}</strong><small>${detail}</small></span><span class="platform-status">Coming soon</span></div>`).join('') + '</div>';
+  const windowsRow = windows
+    ? `<a class="platform-row platform-ready" href="${windows.url}"><span><strong>Windows</strong><small>x64 · Windows 10/11</small></span><span class="platform-action">Download ZIP <span aria-hidden="true">↓</span></span></a>`
+    : `<div class="platform-row"><span><strong>Windows</strong><small>x64 · Windows 10/11</small></span><span class="platform-status">${state}</span></div>`;
+  const upcoming = [['macOS Intel', 'Intel-based Macs'], ['Linux', 'Linux desktops']];
+  const grid = '<div class="platform-grid">' + macRow + windowsRow + upcoming.map(([name, detail]) => `<div class="platform-row platform-upcoming"><span><strong>${name}</strong><small>${detail}</small></span><span class="platform-status">Coming soon</span></div>`).join('') + '</div>';
   const guidance = platform === 'unsupported' || platform === 'macos-unknown'
-    ? '<p class="download-note">The Mac build requires an Apple M-series chip. Other platforms are coming soon.</p>' : '';
-  if (!mac) return grid + `<p class="download-note">${state === 'Release pending' ? 'The first Mac download is not available yet. It will appear here after the GitHub release is published and verified.' : 'The Mac download could not be verified. Please try again later.'}</p>` + guidance;
-  return grid + `<div class="download-release"><p>Unsigned prerelease · ${mac.version}. Ad-hoc signed; not notarized. Do not disable system security to run it.</p><details><summary>Verify Mac download · SHA-256</summary><code>${mac.sha256}</code></details></div>` + guidance;
+    ? '<p class="download-note">The Mac build requires an Apple M-series chip. Windows requires an x64 processor. Intel Mac and Linux builds are coming soon.</p>' : '';
+  if (!mac) return grid + `<p class="download-note">${state === 'Release pending' ? 'Desktop downloads are not available yet. They will appear here after the GitHub release is published and verified.' : 'Desktop downloads could not be verified. Please try again later.'}</p>` + guidance;
+  return grid + `<div class="download-release"><p>Unsigned prerelease · ${mac.version}. Mac: ad-hoc signed, not notarized. Windows: unsigned. Your operating system may require approval to open the app. Do not disable system security.</p><details><summary>Verify Mac download · SHA-256</summary><code>${mac.sha256}</code></details><details><summary>Verify Windows download · SHA-256</summary><code>${windows.sha256}</code></details></div>` + guidance;
 }
 export async function initializeDownloads(doc = document, nav = navigator) {
   const container = doc.getElementById('desktop-download-options');
