@@ -8,6 +8,8 @@ The REST boundary exposes authenticated OTLP JSON logs, metrics, and traces unde
 
 ## Development
 
+`.python-version` selects Python 3.14 for local and CI commands, matching the deployed image. The current locked dependency set is not yet compatible with Python 3.15.
+
 ```bash
 uv sync
 uv run umbod api serve --reload
