@@ -60,10 +60,10 @@ jobs:
         run: bash scripts/verify.sh
       - name: Build unsigned prerelease DMG
         run: bash scripts/package.sh
-      - name: Packaged release application smoke
+      - name: Install DMG and verify packaged release application
         run: |
           version="$(python3 scripts/release.py version)"
-          python3 scripts/native-smoke.py "dist/Umbod-$version.app"
+          python3 scripts/install-smoke.py "dist/Umbod-$version-arm64.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-macos-arm64

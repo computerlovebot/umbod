@@ -60,3 +60,5 @@ OAuth supports native public clients with loopback callbacks, discovery, PKCE an
 - [Release procedure](docs/RELEASING.md), [manifest application](docs/APPLY-MANIFEST.md), and [import provenance and audit](docs/PROVENANCE.md).
 
 The [upstream Windows run](https://github.com/kasperjunge/umbod-desktop/actions/runs/37907078176) is historical source evidence supplied for this import. It is **not** a CI result for this target repository or these integration changes.
+
+Release packaging collects dependency inventories and notices through `scripts/dependency-notices.py`; pinned supplemental sources are documented in `licenses/README.md`. `scripts/install-smoke.py` installs the Mac DMG into disposable storage and verifies the packaged connector/agent flow, native window lifecycle, and signature integrity before and after execution. It never uses the login Keychain.

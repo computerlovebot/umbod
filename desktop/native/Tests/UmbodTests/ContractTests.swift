@@ -28,8 +28,11 @@ import UmbodCore
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("umbod-test-" + UUID().uuidString)
         let backend = Backend()
         let desktop = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let executable = desktop.appendingPathComponent("dist/Umbod Dev.app/Contents/MacOS/umbod-desktop")
-        try await backend.start(executable: executable, directory: directory, testCredentials: true)
+        let app = ProcessInfo.processInfo.environment["UMBOD_TEST_APP"].map { URL(fileURLWithPath: $0) } ?? desktop.appendingPathComponent("dist/Umbod Dev.app")
+        let executable = app.appendingPathComponent("Contents/MacOS/umbod-desktop")
+        let profile = try String(contentsOf: app.appendingPathComponent("Contents/Resources/umbod-profile"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        let environment: AppEnvironment = profile == "release" ? .release : .dev
+        try await backend.start(executable: executable, directory: directory, environment: environment, testCredentials: true)
         let status = try await backend.request(["action": "status"])
         precondition(status["servers"] is [Any])
         precondition(backend.gateway.hasPrefix("127.0.0.1:"))
@@ -39,14 +42,14 @@ import UmbodCore
         try JSONSerialization.data(withJSONObject:["port":port]).write(to:conflictDirectory.appendingPathComponent("python-endpoint.json"))
         let conflict = Backend()
         var portError = false
-        do { try await conflict.start(executable:executable,directory:conflictDirectory, testCredentials: true) }
+        do { try await conflict.start(executable:executable,directory:conflictDirectory, environment:environment, testCredentials: true) }
         catch { portError = error.localizedDescription.contains("port") }
         conflict.stop()
         try? FileManager.default.removeItem(at:conflictDirectory)
         precondition(portError, "Native startup must explain the saved-port conflict")
         log("PASS: native startup exposes actionable saved-port conflict")
         server.command = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/python/bin/python3").path
-        server.arguments = desktop.appendingPathComponent("scripts/fixture_stdio.py").path
+        server.arguments = "-B\n" + desktop.appendingPathComponent("scripts/fixture_stdio.py").path
         let saved = try await backend.request(["action": "server_save", "server": try server.payload()])
         let savedServer = saved["server"] as! [String: Any]
         _ = try await backend.request(["action": "connect", "id": savedServer["id"]!])
@@ -62,19 +65,19 @@ import UmbodCore
         precondition((allowed["allowed_tools"] as? [String])?.contains(toolName) == true)
         let agent = Process()
         agent.executableURL = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/python/bin/python3")
-        agent.arguments = ["-I", "-c", """
+        agent.arguments = ["-I", "-B", "-c", """
         import asyncio, sys
         from fastmcp import Client
         from fastmcp.client.transports import StdioTransport
         async def main():
-            async with Client(StdioTransport(command=sys.argv[1], args=['bridge', 'legacy-fixture-id', '--profile', 'dev', '--data-dir', sys.argv[2], '--test-credentials']), mode='legacy') as client:
+            async with Client(StdioTransport(command=sys.argv[1], args=['bridge', 'legacy-fixture-id', '--profile', sys.argv[3], '--data-dir', sys.argv[2], '--test-credentials']), mode='legacy') as client:
                 async with asyncio.timeout(20):
                     while not (tools := await client.list_tools()):
                         await asyncio.sleep(.1)
                 result = await client.call_tool(tools[0].name, {'text': 'native-python-fixture'})
                 assert 'native-python-fixture' in str(result)
         asyncio.run(main())
-        """, executable.path, directory.path]
+        """, executable.path, directory.path, profile]
         agent.standardOutput = FileHandle.nullDevice
         try agent.run(); agent.waitUntilExit()
         precondition(agent.terminationStatus == 0, "Packaged agent bridge must call the enabled fixture tool")
@@ -93,19 +96,19 @@ import UmbodCore
         precondition(AppEnvironment.dev.dataDirectory != AppEnvironment.release.dataDirectory)
         let persistentDirectory = directory
         let firstUI = Backend()
-        try await firstUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: .dev, testCredentials: true)
+        try await firstUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: environment, testCredentials: true)
         _ = try await firstUI.request(["action": "grant", "tool": toolName, "allow": true])
         let persistentPID = firstUI.processID
         let persistentEndpoint = firstUI.gateway
         firstUI.stop() // UI detaches; the gateway remains available.
         let secondUI = Backend()
-        try await secondUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: .dev, testCredentials: true)
+        try await secondUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: environment, testCredentials: true)
         precondition(secondUI.processID == persistentPID)
         precondition(secondUI.gateway == persistentEndpoint)
         precondition(!secondUI.updateAvailable)
         _ = try await secondUI.request(["action":"status"])
         try await secondUI.shutdown()
-        try await secondUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: .dev, testCredentials: true)
+        try await secondUI.start(executable: executable, directory: persistentDirectory, persistent: true, environment: environment, testCredentials: true)
         precondition(secondUI.processID != persistentPID)
         precondition(secondUI.gateway == persistentEndpoint)
         let restored = try await secondUI.request(["action": "status"])

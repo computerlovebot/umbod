@@ -26,7 +26,7 @@ done
 HERE="$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
 unset PYTHONHOME PYTHONPATH
-exec "$HERE/../Resources/python/bin/python3" -I -m umbod_desktop.main "$@"
+exec "$HERE/../Resources/python/bin/python3" -I -B -m umbod_desktop.main "$@"
 LAUNCHER
 chmod +x "$APP/Contents/MacOS/umbod-desktop"
 # Existing agent configurations can keep the old command path; no Rust is bundled.
