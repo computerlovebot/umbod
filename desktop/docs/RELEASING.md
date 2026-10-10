@@ -12,6 +12,8 @@ Desktop is versioned independently of chart, images and SDK. Update `desktop/VER
 
 Only the publish job has contents:write, after guard and native builds. It uses the workflow token only for GitHub release operations. This implementation was not dispatched or published during integration. The workflow must be merged to the default branch before it can be manually dispatched.
 
+Metadata generation rejects unexpected files, directories and symbolic links in the release staging directory. Publication explicitly uploads only the two versioned installers, SHA256SUMS, desktop-downloads.json and RELEASE_NOTES.md.
+
 If a tag was created but upload failed, the retry intentionally fails closed. Investigate the release/tag and use a new version; do not force-move a desktop tag or silently substitute artifacts. If the final artifact upload alone failed, retrieve desktop-downloads.json from the exact release and run the same public verifier.
 
 ## Production releases: deliberately disabled

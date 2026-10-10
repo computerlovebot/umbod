@@ -63,6 +63,47 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('ReadAllText', (ROOT/'desktop/windows/Directory.Build.props').read_text())
         self.assertIn('desktop/', (ROOT/'.dockerignore').read_text().splitlines())
 
+    def test_version_checks_gateway_package_not_dependency_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder/'VERSION').write_text('0.2.0\n')
+            (folder/'Cargo.lock').write_text('[[package]]\nname = "umbod-gateway"\nversion = "0.2.0"\n')
+            (folder/'Cargo.toml').write_text('[package]\nname = "umbod-gateway"\nversion = "0.1.0"\n[dependencies.example]\nversion = "0.2.0"\n')
+            with mock.patch.object(release, 'DESKTOP', folder):
+                with self.assertRaisesRegex(ValueError, 'Cargo.toml disagree'):
+                    release.version()
+                (folder/'Cargo.toml').write_text('[package]\nname = "umbod-gateway"\nversion = "0.2.0"\n')
+                self.assertEqual(release.version(), '0.2.0')
+                (folder/'Cargo.lock').write_text('[[package]]\nname = "umbod-gateway"\nversion = "0.1.0"\n')
+                with self.assertRaisesRegex(ValueError, 'Cargo.lock disagree'):
+                    release.version()
+
+    def test_metadata_rejects_extra_files_and_unsafe_outputs_before_writing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            for name in ['Umbod-0.2.0-arm64.dmg', 'Umbod-0.2.0-release-win-x64.zip']:
+                (folder/name).write_bytes(b'artifact')
+            for name in ['config.json', 'Umbod-0.1.0-arm64.dmg']:
+                extra = folder/name
+                extra.write_bytes(b'unexpected')
+                with self.assertRaisesRegex(ValueError, 'Unexpected release artifact'):
+                    release.metadata(folder, '0.2.0', 'a'*40)
+                self.assertFalse((folder/'desktop-downloads.json').exists())
+                extra.unlink()
+            output = folder/'SHA256SUMS'
+            output.mkdir()
+            with self.assertRaisesRegex(ValueError, 'Unsafe release artifact'):
+                release.metadata(folder, '0.2.0', 'a'*40)
+            output.rmdir()
+            target = folder/'Umbod-0.2.0-arm64.dmg'
+            output.symlink_to(target)
+            with self.assertRaisesRegex(ValueError, 'Unsafe release artifact'):
+                release.metadata(folder, '0.2.0', 'a'*40)
+            self.assertEqual(target.read_bytes(), b'artifact')
+            output.unlink()
+            first = release.metadata(folder, '0.2.0', 'a'*40)
+            self.assertEqual(release.metadata(folder, '0.2.0', 'a'*40), first)
+
     def test_native_smoke_default_from_monorepo_root(self):
         script = ROOT/'desktop/scripts/native-smoke.py'
         with mock.patch('sys.argv', [str(script)]), mock.patch('subprocess.Popen', side_effect=RuntimeError('do not launch')) as process:
@@ -80,6 +121,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('workflow_dispatch:', workflow)
         self.assertNotIn('\n  push:', workflow)
         self.assertNotIn('\n  pull_request:', workflow)
+        self.assertNotIn('desktop/dist/release/*', workflow)
         for required in ['release.py guard', 'needs: [guard, build]', '--prerelease', '--latest=false', '--verify-tag', 'desktop-release', 'website-manifest-update', 'rights_confirmed', 'persist-credentials: false']:
             self.assertIn(required, workflow)
         build = (ROOT/'.github/workflows/desktop-build.yml').read_text()

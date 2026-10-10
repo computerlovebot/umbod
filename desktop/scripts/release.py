@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import tomllib
 
 DESKTOP = Path(__file__).resolve().parents[1]
 REPOSITORY = 'computerlovetech/umbod'
@@ -20,11 +21,12 @@ def check_version(value):
 
 def version():
     value = check_version((DESKTOP / 'VERSION').read_text().strip())
-    cargo = (DESKTOP / 'Cargo.toml').read_text()
-    locked = (DESKTOP / 'Cargo.lock').read_text()
-    if not re.search(r'^version = "' + re.escape(value) + '"$', cargo, re.M):
+    cargo = tomllib.loads((DESKTOP / 'Cargo.toml').read_text())
+    locked = tomllib.loads((DESKTOP / 'Cargo.lock').read_text())
+    if cargo.get('package', {}).get('version') != value:
         raise ValueError('desktop/VERSION and Cargo.toml disagree')
-    if f'name = "umbod-gateway"\nversion = "{value}"' not in locked:
+    gateways = [p for p in locked.get('package', []) if p.get('name') == 'umbod-gateway']
+    if len(gateways) != 1 or gateways[0].get('version') != value:
         raise ValueError('desktop/VERSION and Cargo.lock disagree')
     return value
 
@@ -53,6 +55,12 @@ def metadata(folder, release_version, commit):
     base = f'https://github.com/{REPOSITORY}/releases/download/{tag}/'
     names = {'macos-arm64': f'Umbod-{release_version}-arm64.dmg',
              'windows-x64': f'Umbod-{release_version}-release-win-x64.zip'}
+    outputs = {'desktop-downloads.json', 'SHA256SUMS', 'RELEASE_NOTES.md'}
+    for path in folder.iterdir():
+        if path.name not in set(names.values()) | outputs:
+            raise ValueError(f'Unexpected release artifact: {path.name}')
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f'Unsafe release artifact: {path.name}')
     assets = {}
     for platform, name in names.items():
         path = folder / name

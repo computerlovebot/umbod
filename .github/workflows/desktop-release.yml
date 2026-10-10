@@ -32,6 +32,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Validate intentional desktop-only release
         env:
           DESKTOP_VERSION: ${{ inputs.version }}
@@ -72,6 +75,9 @@ jobs:
           pattern: desktop-*
           merge-multiple: true
           path: desktop/dist/release
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Generate notes, checksums, and desktop manifest
         run: python3 desktop/scripts/release.py metadata --directory desktop/dist/release
       - name: Create desktop tag and unsigned prerelease
@@ -82,7 +88,12 @@ jobs:
           # Tag creation fails if the tag exists. Never force-update tags/assets.
           gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
             -f "ref=refs/tags/desktop-v$VERSION" -f "sha=$GITHUB_SHA"
-          gh release create "desktop-v$VERSION" desktop/dist/release/* \
+          gh release create "desktop-v$VERSION" \
+            "desktop/dist/release/Umbod-$VERSION-arm64.dmg" \
+            "desktop/dist/release/Umbod-$VERSION-release-win-x64.zip" \
+            desktop/dist/release/SHA256SUMS \
+            desktop/dist/release/desktop-downloads.json \
+            desktop/dist/release/RELEASE_NOTES.md \
             --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
             --title "Desktop $VERSION — UNSIGNED PRERELEASE" \
             --notes-file desktop/dist/release/RELEASE_NOTES.md

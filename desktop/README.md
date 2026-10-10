@@ -6,7 +6,7 @@ No public desktop release is advertised yet. The website deliberately offers sel
 
 ## Build and test
 
-Run from the monorepo root unless a command explicitly changes directory. Prerequisites: stable Rust (including rustfmt and Clippy), Python 3, Swift 6 and Apple developer tools on macOS; .NET 8 SDK and PowerShell 7 on Windows. No command below installs or launches the production app.
+Run from the monorepo root unless a command explicitly changes directory. Prerequisites: stable Rust (including rustfmt and Clippy), Python 3.11+, Swift 6 and Apple developer tools on macOS; .NET 8 SDK and PowerShell 7 on Windows. No command below installs or launches the production app.
 
 ```sh
 cd desktop
