@@ -106,10 +106,8 @@ class ReleaseTests(unittest.TestCase):
 
     def test_native_smoke_default_from_monorepo_root(self):
         script = ROOT/'desktop/scripts/native-smoke.py'
-        with mock.patch('sys.argv', [str(script)]), mock.patch('subprocess.Popen', side_effect=RuntimeError('do not launch')) as process:
-            with self.assertRaisesRegex(RuntimeError, 'do not launch'):
-                runpy.run_path(str(script))
-        self.assertEqual(Path(process.call_args.args[0][0]), ROOT/'desktop/dist'/f'Umbod-{release.version()}.app/Contents/MacOS/Umbod')
+        namespace = runpy.run_path(str(script))
+        self.assertEqual(namespace['default_app'](), ROOT/'desktop/dist'/f'Umbod-{release.version()}.app')
 
     def test_existing_release_bytes(self):
         baseline = json.loads((ROOT/'desktop/tests/release-baseline.json').read_text())
@@ -125,7 +123,11 @@ class ReleaseTests(unittest.TestCase):
         for required in ['release.py guard', 'needs: [guard, build]', '--prerelease', '--latest=false', '--verify-tag', 'desktop-release', 'website-manifest-update', 'rights_confirmed', 'persist-credentials: false']:
             self.assertIn(required, workflow)
         build = (ROOT/'.github/workflows/desktop-build.yml').read_text()
-        for required in ['macos-15', 'windows-latest', 'cargo test --locked', 'UmbodTests', '--smoke-test', 'upload-artifact@', 'bun run build', 'test_release_workflow.py']:
+        for required in ['macos-15', 'windows-latest', 'cargo test --locked', 'bash scripts/verify.sh', '--smoke-test', 'upload-artifact@', 'bun run build', 'test_release_workflow.py']:
             self.assertIn(required, build)
+        verify = (ROOT/'desktop/scripts/verify.sh').read_text()
+        self.assertIn('UmbodTests', verify)
+        self.assertLess(verify.index('scripts/build.sh'), verify.index('UmbodTests'))
+        self.assertIn('uv run --locked pytest', verify)
 
 if __name__ == '__main__': unittest.main()

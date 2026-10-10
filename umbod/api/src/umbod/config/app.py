@@ -46,6 +46,7 @@ class EndpointsConfig(ConfigModel):
 
 
 class RestConfig(ConfigModel):
+    metrics_enabled: bool = True
     port: int = Field(default=defaults.REST_PORT, gt=0)
     metrics_port: int = Field(default=defaults.REST_METRICS_PORT, gt=0)
 
@@ -58,6 +59,7 @@ class OtlpReceiverConfig(ConfigModel):
 
 
 class McpConfig(ConfigModel):
+    metrics_enabled: bool = True
     port: int = defaults.MCP_PORT
     messaging_transport: Literal["http", "sql"] = "http"
     metrics_port: int = Field(default=defaults.MCP_METRICS_PORT, gt=0)

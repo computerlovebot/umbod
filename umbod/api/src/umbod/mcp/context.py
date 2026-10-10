@@ -1,3 +1,5 @@
+from umbod.mcp.logging import McpToolInvocationLogSink
+
 from dataclasses import dataclass
 
 from fastmcp import FastMCP
@@ -34,6 +36,7 @@ class PublicAppConfig:
     auth_provider: MCPAuthProvider | None = None
     connector_tool_runtime_state_store: InMemoryConnectorToolRuntimeStateStore | None = None
     group_permission_runtime_state: InMemoryGroupConnectorToolPermissions | None = None
+    invocation_log_sink: McpToolInvocationLogSink | None = None
 
 
 @dataclass(frozen=True)

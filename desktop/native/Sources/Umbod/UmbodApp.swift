@@ -36,9 +36,14 @@ import UmbodCore
         defer { starting = false }
         do {
             if CommandLine.arguments.contains("--smoke-report") && dataDirectory == nil { throw ContractError.message("Smoke tests require --data-dir isolation") }
-            try await backend.start(directory: dataDirectory, persistent: dataDirectory == nil); online = true; try await refresh()
+            try await backend.start(directory: dataDirectory, persistent: dataDirectory == nil, testCredentials: CommandLine.arguments.contains("--test-credentials")); online = true; try await refresh()
                 if let flag = CommandLine.arguments.firstIndex(of: "--smoke-report"), CommandLine.arguments.count > flag + 1 {
                     let path = CommandLine.arguments[flag + 1]
+                    // A fixture backend can be ready before AppKit presents the window.
+                    for _ in 0..<100 {
+                        if NSApp.windows.contains(where: { $0.title == AppEnvironment.current.name && $0.isVisible }) { break }
+                        try await Task.sleep(for: .milliseconds(100))
+                    }
                     var survived = false, reopened = false
                     if CommandLine.arguments.contains("--smoke-close-reopen"), let window = NSApp.windows.first(where: { $0.title == AppEnvironment.current.name }) {
                         window.performClose(nil)
@@ -58,6 +63,9 @@ import UmbodCore
     }
     func refresh() async throws {
         let state = try await backend.request(["action": "status"])
+        if let migration = state["migration"] as? [String: Any], migration["status"] as? String == "needs_attention" {
+            error = migration["error"] as? String ?? "Migration needs attention. Restart to retry."
+        }
         activation = ActivationState(state)
         diagnostics = state["diagnostics"] as? [String: Any] ?? [:]
         toolUsage = state["tool_usage"] as? [String: [String: Int]] ?? [:]

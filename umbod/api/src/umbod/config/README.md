@@ -35,3 +35,5 @@ OIDC issuer derivation preserves an explicit `UMBOD_OIDC_ISSUER_URL`. Otherwise 
 ### `inspection.py`
 
 **Read when working with:** Configuration inspection and display behavior.
+
+`RestConfig.metrics_enabled` and `McpConfig.metrics_enabled` default to true. Embedded hosts may disable the dedicated metrics listeners while retaining application instrumentation; normal service configurations remain enabled.

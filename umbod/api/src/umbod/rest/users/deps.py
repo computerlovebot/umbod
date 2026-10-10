@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from umbod.config import AppConfig
+from umbod.rest.authentication.authorization import JwtVerifier
 from umbod.rest.authentication.middleware import JwtVerifierFactory
 from umbod.rest.instance_configuration.dependencies import get_app_config
 from umbod.rest.users.current_user import CurrentUserProvider, JwtCurrentUserProvider
@@ -50,15 +51,22 @@ def get_user_profile_provider(
     return OidcIdTokenUserProfileProvider(verifier, mapper, fallback)
 
 
+def get_access_token_verifier(
+    config: Annotated[AppConfig, Depends(get_app_config)],
+) -> JwtVerifier:
+    return JwtVerifierFactory().create(config)
+
+
 def get_current_user_provider(
     config: Annotated[AppConfig, Depends(get_app_config)],
+    access_verifier: Annotated[JwtVerifier, Depends(get_access_token_verifier)],
     profile_provider: Annotated[
         UserProfileProvider, Depends(get_user_profile_provider)
     ],
 ) -> CurrentUserProvider:
     return JwtCurrentUserProvider(
         config.admin_authentication.jwt_header_name,
-        JwtVerifierFactory().create(config),
+        access_verifier,
         profile_provider,
         config.user_profile.jwt_header_name,
     )

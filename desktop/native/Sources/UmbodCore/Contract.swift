@@ -38,7 +38,7 @@ public enum JSONText {
 }
 public enum ClientConfiguration {
     public static func bridge(bundlePath: String, environment: AppEnvironment = .release, executable: URL? = nil) throws -> String {
-        try JSONText.encode(["mcpServers": [environment.serverName: ["command": executable?.path ?? bundlePath + "/Contents/MacOS/umbod-gateway", "args": ["bridge", "--profile", environment.rawValue]]]])
+        try JSONText.encode(["mcpServers": [environment.serverName: ["command": executable?.path ?? bundlePath + "/Contents/MacOS/umbod-desktop", "args": ["bridge", "--profile", environment.rawValue]]]])
     }
 }
 extension ClientConfiguration {

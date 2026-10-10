@@ -7,3 +7,7 @@ __pycache__/
 .DS_Store
 *.dmg
 /.build-local/
+
+/python/.venv/
+/python/.pytest_cache/
+/python/.ruff_cache/

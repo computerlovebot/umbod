@@ -169,7 +169,7 @@ struct ActivationView: View {
         }
     }
     func makePreview() {
-        Task { do { preview=try await model.backend.request(["action":"client_preview","path":model.clientConfig.path,"command":Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/umbod-gateway").path]);showPreview=true }catch{model.error=error.localizedDescription} }
+        Task { do { preview=try await model.backend.request(["action":"client_preview","path":model.clientConfig.path,"command":Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/umbod-desktop").path]);showPreview=true }catch{model.error=error.localizedDescription} }
     }
     func applyPreview() { showPreview=false;model.act(["action":"client_apply","preview":preview["id"] as? String ?? "","consent":true],success:"Claude configured. Restart Claude Desktop to load Umbod.") }
 }
