@@ -11,6 +11,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         desktop: fileURLToPath(new URL('./index.html', import.meta.url)),
+        download: fileURLToPath(new URL('./download/index.html', import.meta.url)),
         enterprise: fileURLToPath(new URL('./enterprise/index.html', import.meta.url)),
       },
     },

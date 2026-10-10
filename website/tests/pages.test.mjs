@@ -15,8 +15,8 @@ test('home and enterprise have separate audiences and truthful product evidence'
   const home = read('index.html');
   assert.match(home, /Your tools\. Your agents\./);
   assert.match(home, /Apple Silicon/);
-  assert.match(home, /Windows.*x64/);
-  assert.match(home, /connection diagram/i);
+  assert.match(home, /Windows.*coming soon/);
+  assert.match(home, /Connection illustration/i);
   assert.doesNotMatch(home, /tree\/main\/desktop/, 'desktop is not on main before this PR merges');
   assert.doesNotMatch(home, /kind create cluster|Grant access by group|umbod-overview\.mp4/);
   assert.ok(existsSync(join(root, 'enterprise/index.html')), 'enterprise is a real HTML entry');
@@ -35,7 +35,7 @@ for (const status of ['unavailable', 'available']) {
     const site = join(temporary, 'website');
     mkdirSync(site);
     try {
-      for (const path of ['index.html', 'enterprise', 'src', 'partials', 'styles.css', 'vite.config.js', 'wrangler.jsonc', 'package.json', 'public']) {
+      for (const path of ['index.html', 'download', 'enterprise', 'src', 'partials', 'styles.css', 'vite.config.js', 'wrangler.jsonc', 'package.json', 'public']) {
         assert.ok(existsSync(join(root, path)), `missing multi-page input: ${path}`);
         cpSync(join(root, path), join(site, path), { recursive: true });
       }
@@ -48,13 +48,13 @@ for (const status of ['unavailable', 'available']) {
       writeFileSync(join(site, 'public/desktop-downloads.json'), JSON.stringify(manifest));
       const result = spawnSync(process.execPath, [join(root, 'node_modules/vite/bin/vite.js'), 'build'], {cwd: site, encoding: 'utf8', timeout: 30000});
       assert.equal(result.status, 0, result.stdout + result.stderr);
-      const pages = ['index.html', 'enterprise/index.html'].map(path => readFileSync(join(site, 'dist', path), 'utf8'));
+      const pages = ['index.html', 'enterprise/index.html', 'download/index.html'].map(path => readFileSync(join(site, 'dist', path), 'utf8'));
       for (const [i, html] of pages.entries()) {
-        const canonical = i ? 'https://umbod.ai/enterprise/' : 'https://umbod.ai/';
+        const canonical = ['https://umbod.ai/', 'https://umbod.ai/enterprise/', 'https://umbod.ai/download/'][i];
         assert.ok(html.includes(`<link rel="canonical" href="${canonical}">`));
         assert.ok(html.includes(`<meta property="og:url" content="${canonical}">`));
         assert.match(html, /href="\/enterprise\/"/);
-        assert.match(html, /href="\/#downloads"/);
+        assert.match(html, /href="\/download\/"/);
         assert.match(html, /href="\/docs\/"/);
         assert.match(html, /<noscript>/);
         assert.match(html, /<noscript>\s*<style>\.menu-toggle, \.copy-btn \{ display: none; \}<\/style>/, 'no inert controls without JavaScript');
@@ -65,12 +65,13 @@ for (const status of ['unavailable', 'available']) {
       assert.notEqual(pages[0].match(/<title>(.*?)<\/title>/)[1], pages[1].match(/<title>(.*?)<\/title>/)[1]);
       assert.doesNotMatch(pages[1], /desktop-download-options|releases\/download/);
       if (status === 'available') {
-        for (const asset of Object.values(manifest.assets)) assert.ok(pages[0].includes(asset.url));
-        assert.match(pages[0], /Unsigned prerelease/);
-        assert.match(pages[0], /SHA-256/);
+        assert.ok(pages[2].includes(manifest.assets['macos-arm64'].url));
+        assert.ok(!pages[2].includes(manifest.assets['windows-x64'].url));
+        assert.match(pages[2], /Unsigned prerelease/);
+        assert.match(pages[2], /SHA-256/);
       } else {
-        assert.match(pages[0], /not available yet/);
-        assert.doesNotMatch(pages[0], /releases\/download/);
+        assert.match(pages[2], /not available yet/);
+        assert.doesNotMatch(pages[2], /releases\/download/);
       }
       const redirects = readFileSync(join(site, 'dist/_redirects'), 'utf8');
       assert.doesNotMatch(redirects, /\/enterprise\/?\s+\/\s+301/);
@@ -106,6 +107,12 @@ async function verifyCloudflareRoutes(site) {
       assert.equal(response.status, 200, path);
       assert.equal(new URL(response.url).pathname, '/enterprise/', path);
       assert.match(await response.text(), /Umbod Enterprise/);
+    }
+    for (const path of ['/download', '/download/']) {
+      const response = await fetch(base + path);
+      assert.equal(response.status, 200);
+      assert.equal(new URL(response.url).pathname, '/download/');
+      assert.match(await response.text(), /Coming soon/);
     }
     const missing = await fetch(base + '/not-a-real-page');
     assert.equal(missing.status, 404, 'unknown routes must not silently serve the desktop page');

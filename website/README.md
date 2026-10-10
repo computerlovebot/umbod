@@ -13,7 +13,7 @@ in the guides and generated Helm reference; Vite substitutes them in the landing
 page during development and build. Do not edit release tags in the rendered
 `website/public/docs/` or `website/dist/` output.
 
-Vite builds two HTML entries: `index.html` and `enterprise/index.html`. Shared
+Vite builds three HTML entries: `index.html`, `download/index.html` and `enterprise/index.html`. Shared
 header/footer partials are inserted at build time, so both pages work without
 JavaScript. `src/site.mjs` enhances the mobile menu and command-copy buttons.
 Cloudflare Workers static assets serve `/enterprise/` and normalize `/enterprise`
@@ -84,28 +84,35 @@ In each of the `umbod.com` and `umbod.dev` Cloudflare zones:
    - `https://www.umbod.com/*` → `https://umbod.ai/${1}`
    - Use the equivalent two rules for `umbod.dev`.
 
+The homepage uses a clearly labeled connection illustration until the real desktop
+recording is available. [Issue #6](https://github.com/computerlovetech/umbod/issues/6)
+tracks recording automation in the release pipeline. Shared footer links and the
+homepage founder section provide community and founder LinkedIn destinations.
+
 The desktop source/build links use an immutable public source revision while this
 PR is unmerged; `main/desktop` currently returns 404. Update that revision when the
 desktop instructions change, or use `main` after it contains the desktop tree.
 
 ## Desktop downloads
 
-The home-page download CTAs use `public/desktop-downloads.json`, independently of
-root release metadata. Enterprise navigation returns to `/#downloads` and never
-initializes desktop downloads. The initial state is unavailable, with self-hosting
-explicitly labeled as a separate edition for teams;
+All Download CTAs navigate to `/download/`. That page uses
+`public/desktop-downloads.json`, independently of root release metadata. The home
+and enterprise pages never initialize desktop downloads. Only macOS Apple Silicon
+is offered publicly; Windows, Linux and Intel Mac rows say Coming soon even when
+the release manifest contains Windows build artifacts. The initial Mac state is Release pending, with Enterprise
+linked as the separate edition for teams;
 do not add speculative URLs. `src/downloads.mjs` validates exact desktop tags, public
 asset URLs, hashes and platform choices. Vite renders a no-JavaScript fallback from the
 same validated manifest. Run `bun run test` for download, manifest-update and
-route/content tests. The route tests build both entries in isolated temporary
+route/content tests. The route tests build all three entries in isolated temporary
 checkouts with available and unavailable manifests, checking metadata, navigation,
 anchors and no-JavaScript download links without changing the working manifest.
 They also launch local Wrangler on a temporary loopback port to verify enterprise
 deep links and a real 404 for unknown routes. No Cloudflare credentials are needed.
 
 Before shipping, run the full build and use local Wrangler to check `/`,
-`/enterprise`, `/enterprise/`, `/enterprise.html`, docs and asset links. Inspect
-both pages at desktop and mobile widths, including the menu, keyboard focus,
+`/download/`, `/download`, `/enterprise`, `/enterprise/`, `/enterprise.html`, docs and asset links. Inspect
+all pages at desktop and mobile widths, including the menu, keyboard focus,
 download state and JavaScript-disabled navigation. Do not advertise a release
 until the manifest procedure below succeeds.
 

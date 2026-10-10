@@ -1,5 +1,4 @@
 const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
-const SELF_HOST = '/docs/getting-started/kubernetes-installation/';
 const PLATFORMS = {
   'macos-arm64': { label: 'macOS · Apple Silicon', requirements: 'macOS 14 or later. Ad-hoc signed; not notarized.', file: v => `Umbod-${v}-arm64.dmg` },
   'windows-x64': { label: 'Windows x64', requirements: 'Windows 10/11, x64. Unsigned, self-contained ZIP.', file: v => `Umbod-${v}-release-win-x64.zip` },
@@ -40,8 +39,8 @@ export function selectDownload(manifest, platform) {
   try {
     const m = validateManifest(manifest);
     if (m.status !== 'available') return { recommended: null, downloads: [] };
-    return { recommended: Object.hasOwn(PLATFORMS, platform) ? platform : null,
-      downloads: Object.entries(PLATFORMS).map(([id, info]) => ({id, ...info, ...m.assets[id], version: m.version})) };
+    return { recommended: platform === 'macos-arm64' ? platform : null,
+      downloads: Object.entries(PLATFORMS).filter(([id]) => id === 'macos-arm64').map(([id, info]) => ({id, ...info, ...m.assets[id], version: m.version})) };
   } catch { return { recommended: null, downloads: [] }; }
 }
 export async function loadManifest(fetcher = globalThis.fetch) {
@@ -52,17 +51,19 @@ export async function loadManifest(fetcher = globalThis.fetch) {
   } catch { return null; }
 }
 export function renderDownloads(manifest, platform) {
-  const {recommended, downloads} = selectDownload(manifest, platform);
-  const alternative = `<p class="download-alternative">Separate edition for teams: <a class="text-link" href="/enterprise/">Explore Umbod Enterprise</a> or <a class="text-link" href="${SELF_HOST}">self-host on Kubernetes <span aria-hidden="true">↗</span></a>. This is not the desktop app.</p>`;
-  if (!downloads.length) {
-    let message = 'Desktop downloads could not be verified. Please try again later.';
-    try { if (validateManifest(manifest).status === 'unavailable') message = 'Desktop downloads are not available yet.'; } catch {}
-    return `<p>${message}</p>` + alternative;
-  }
-  // All interpolated values are fixed strings or validated version/hash/allowlisted URLs.
-  return '<p>Unsigned prerelease · ' + downloads[0].version + '. Do not disable system security to run it.</p>' +
-    (platform === 'unsupported' ? '<p>No native download is available for your platform. Builds for other computers are listed below.</p>' : platform === 'macos-unknown' ? '<p>Choose the Apple Silicon build only if your Mac has an Apple M-series chip. Intel Macs are not supported.</p>' : '') +
-    '<div class="download-grid">' + downloads.map(d => `<article class="download-card"><h3>${d.label}${d.id === recommended ? ' · Recommended' : ''}</h3><p>${d.requirements}</p><a class="button" href="${d.url}">Download for ${d.label} <span aria-hidden="true">↓</span></a><details><summary>Verify download · SHA-256</summary><code>${d.sha256}</code></details></article>`).join('') + '</div>' + alternative;
+  const { downloads } = selectDownload(manifest, platform);
+  const mac = downloads[0];
+  let state = 'Release pending';
+  try { if (validateManifest(manifest).status !== 'unavailable') state = 'Temporarily unavailable'; } catch { state = 'Temporarily unavailable'; }
+  const macRow = mac
+    ? `<a class="platform-row platform-ready" href="${mac.url}"><span><strong>macOS</strong><small>Apple Silicon · macOS 14 or later</small></span><span class="platform-action">Download DMG <span aria-hidden="true">↓</span></span></a>`
+    : `<div class="platform-row"><span><strong>macOS</strong><small>Apple Silicon · macOS 14 or later</small></span><span class="platform-status">${state}</span></div>`;
+  const upcoming = [['macOS Intel', 'Intel-based Macs'], ['Windows', 'Windows PCs'], ['Linux', 'Linux desktops']];
+  const grid = '<div class="platform-grid">' + macRow + upcoming.map(([name, detail]) => `<div class="platform-row platform-upcoming"><span><strong>${name}</strong><small>${detail}</small></span><span class="platform-status">Coming soon</span></div>`).join('') + '</div>';
+  const guidance = platform === 'unsupported' || platform === 'macos-unknown'
+    ? '<p class="download-note">The Mac build requires an Apple M-series chip. Other platforms are coming soon.</p>' : '';
+  if (!mac) return grid + `<p class="download-note">${state === 'Release pending' ? 'The first Mac download is not available yet. It will appear here after the GitHub release is published and verified.' : 'The Mac download could not be verified. Please try again later.'}</p>` + guidance;
+  return grid + `<div class="download-release"><p>Unsigned prerelease · ${mac.version}. Ad-hoc signed; not notarized. Do not disable system security to run it.</p><details><summary>Verify Mac download · SHA-256</summary><code>${mac.sha256}</code></details></div>` + guidance;
 }
 export async function initializeDownloads(doc = document, nav = navigator) {
   const container = doc.getElementById('desktop-download-options');

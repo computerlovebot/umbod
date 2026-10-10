@@ -23,7 +23,7 @@ test('application requires public release, exact tag source, sizes and downloade
 });
 test('static HTML follows manifest for no-JavaScript visitors', () => {
   const html = '<div><!-- desktop-downloads:start -->old<!-- desktop-downloads:end --></div>';
-  assert.ok(renderDesktopPage(html, manifest).includes('Download for Windows x64'));
+  assert.ok(renderDesktopPage(html, manifest).includes('Download DMG'));
   assert.ok(!renderDesktopPage(html, manifest).includes('>old<'));
   assert.ok(renderDesktopPage(html, {schemaVersion: 1, status:'unavailable'}).includes('not available'));
   assert.throws(() => renderDesktopPage(html, {status: 'available'}));

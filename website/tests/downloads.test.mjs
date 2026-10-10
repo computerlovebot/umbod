@@ -29,9 +29,9 @@ test('platform hints never guess Apple Silicon from MacIntel or select mobile AR
 });
 
 test('download selection preserves manual choices and truthful unavailability', () => {
-  assert.equal(selectDownload(fixture(), 'windows-x64').recommended, 'windows-x64');
+  assert.equal(selectDownload(fixture(), 'windows-x64').recommended, null);
   assert.equal(selectDownload(fixture(), 'macos-unknown').recommended, null);
-  assert.equal(selectDownload(fixture(), 'unsupported').downloads.length, 2);
+  assert.equal(selectDownload(fixture(), 'unsupported').downloads.length, 1);
   assert.equal(selectDownload({schemaVersion: 1, status: 'unavailable'}, 'macos-arm64').downloads.length, 0);
   assert.equal(selectDownload(null, 'windows-x64').downloads.length, 0);
 });
@@ -41,26 +41,28 @@ test('fetch fails closed for HTTP, network, malformed and redirected responses',
   assert.equal((await loadManifest(async (url, options) => { assert.equal(url, '/desktop-downloads.json'); assert.equal(options.credentials, 'omit'); return {ok: true, json: async () => fixture()}; })).tag, 'desktop-v0.2.0');
 });
 
-test('rendered links include explicit OS, unsigned label, version, hash and self-host path', () => {
+test('only Apple Silicon is downloadable; other platforms remain coming soon', () => {
   const html = renderDownloads(fixture(), 'windows-x64');
-  for (const text of ['Windows x64', 'Apple Silicon', '0.2.0', 'Unsigned prerelease', 'SHA-256', 'b'.repeat(64), '/docs/getting-started/kubernetes-installation/', 'Recommended']) assert.ok(html.includes(text), text);
-  const absent = renderDownloads(null, 'unknown');
-  assert.ok(absent.includes('could not be verified'));
-  assert.ok(renderDownloads({schemaVersion: 1, status: 'unavailable'}, 'unknown').includes('not available yet'));
+  for (const text of ['Windows', 'Linux', 'macOS Intel', 'Apple Silicon', '0.2.0', 'Unsigned prerelease', 'SHA-256', 'b'.repeat(64), 'Coming soon']) assert.ok(html.includes(text), text);
+  assert.ok(html.includes(fixture().assets['macos-arm64'].url));
+  assert.ok(!html.includes(fixture().assets['windows-x64'].url));
+  assert.ok(!html.includes('Recommended'));
+  assert.ok(renderDownloads(null, 'unknown').includes('could not be verified'));
+  const absent = renderDownloads({schemaVersion: 1, status: 'unavailable'}, 'unknown');
+  assert.ok(absent.includes('not available yet'));
+  assert.ok(absent.includes('Apple Silicon'));
+  assert.ok(absent.includes('Coming soon'));
   assert.ok(!absent.includes('releases/download'));
-  assert.ok(absent.includes('/docs/getting-started/kubernetes-installation/'));
-  assert.ok(absent.includes('Separate edition for teams'));
-  assert.ok(absent.includes('href="/enterprise/"'));
 });
 
-test('both CTAs target an accessible downloads section with no-JS fallback', () => {
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.equal((html.match(/href="#downloads"/g) || []).length, 2);
-  assert.ok(!html.includes('Try locally'));
-  assert.ok(html.includes('id="downloads"'));
-  assert.ok(html.includes('aria-labelledby="downloads-title"'));
-  assert.ok(html.includes('aria-live="polite"'));
-  assert.ok(html.includes('Desktop downloads are not available yet.'));
+test('download page has accessible status and home CTAs use a separate route', () => {
+  const home = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const download = readFileSync(new URL('../download/index.html', import.meta.url), 'utf8');
+  assert.ok(home.includes('href="/download/"'));
+  assert.ok(!home.includes('href="#downloads"'));
+  assert.ok(!home.includes('desktop-download-options'));
+  assert.ok(download.includes('aria-labelledby="downloads-title"'));
+  assert.ok(download.includes('aria-live="polite"'));
 });
 
 test('checked-in desktop manifest conforms to the supported schema', () => {

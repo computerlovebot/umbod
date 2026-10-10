@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Umbod Desktop connects your local AI agents to MCP tools. Manage connections and tool permissions on your computer. Check availability for macOS Apple Silicon and Windows x64.">
+  <meta name="description" content="Umbod Desktop connects your local AI agents to MCP tools. Manage connections and tool permissions on your computer. For macOS Apple Silicon. Windows and Linux coming soon.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://umbod.ai/">
   <meta property="og:title" content="Umbod Desktop — Your tools. Your agents.">
-  <meta property="og:description" content="A native app for your MCP connections and tool permissions. Built for macOS Apple Silicon and Windows x64. Check desktop download availability.">
+  <meta property="og:description" content="A native app for your MCP connections and tool permissions. For macOS Apple Silicon. Windows and Linux coming soon.">
   <meta property="og:image" content="https://umbod.ai/umbod-logo-white-background.png">
   <meta property="og:image:width" content="1254">
   <meta property="og:image:height" content="1254">
@@ -19,69 +19,61 @@
   <link rel="stylesheet" href="/styles.css">
   <title>Umbod Desktop — Your tools. Your agents.</title>
 </head>
-<body>
+<body class="desktop-page">
   <a class="skip-link" href="#main">Skip to content</a>
   {{ partial.header }}
   <main id="main">
-    <section class="hero wrap" aria-labelledby="hero-title">
-      <div class="hero-copy">
-        <p class="eyebrow">Umbod Desktop · For your computer</p>
-        <h1 id="hero-title">Your tools. Your agents.<br><span>One local app.</span></h1>
-        <p class="hero-description">Connect your MCP tools once. Choose which tools your agents can use, with permissions shared across the clients connected to Umbod on your computer.</p>
-        <div class="actions hero-actions"><a class="button" href="#downloads" data-desktop-cta>Desktop downloads <span aria-hidden="true">↓</span></a><a class="text-link" href="https://github.com/computerlovetech/umbod/tree/d41b8aac1270c4558722e43b090ccb69125f7bd6/desktop">View the source <span aria-hidden="true">↗</span></a></div>
-        <p class="hero-note">macOS 14+ · Apple Silicon &nbsp; / &nbsp; Windows 10/11 · x64<br>Prerelease builds. Check availability and signing details below.</p>
-      </div>
-      <figure class="architecture desktop-diagram" aria-labelledby="desktop-diagram-caption">
-        <div class="diagram-heading"><span class="mono">DESKTOP / CONNECTION MODEL</span></div>
-        <div class="agent-layer"><span class="diagram-label">MCP clients on your computer</span><div class="agent-list"><span>Your coding agent</span><span>Your desktop assistant</span></div></div>
-        <div class="flow-line" aria-hidden="true"><span>MCP</span></div>
-        <div class="cluster"><span class="cluster-label">Your computer</span><div class="umbod-node"><span class="node-title"><img class="node-mark" src="/umbod-logo.svg" width="44" height="44" alt="">umbod</span><span class="node-description">Local connections &amp; tool permissions</span></div></div>
-        <div class="flow-line" aria-hidden="true"></div>
-        <div class="tool-layer"><span>Local MCP servers<br><small>stdio</small></span><span>Remote MCP servers<br><small>Streamable HTTP</small></span></div>
-        <figcaption id="desktop-diagram-caption">Desktop connection diagram, not an app screenshot. Remote tools still connect to their own services.</figcaption>
+    <section class="desktop-hero wrap" aria-labelledby="hero-title">
+      <p class="eyebrow"><span class="diagram-dot" aria-hidden="true"></span>Open source. On your computer.</p>
+      <h1 id="hero-title">Your tools. Your agents.<br><span>One place to connect them.</span></h1>
+      <p class="hero-description">Give your agents the tools they need.<br>Connect your MCP servers, choose what’s allowed,<br class="wide-only"> and keep your setup in one local app.</p>
+      <div class="actions"><a class="button" href="/download/">Get Umbod for Mac <span aria-hidden="true">↓</span></a><a class="button secondary" href="https://github.com/computerlovetech/umbod">View on GitHub <span aria-hidden="true">↗</span></a></div>
+      <p class="hero-note">macOS · Apple Silicon &nbsp; <span aria-hidden="true">/</span> &nbsp; Windows &amp; Linux coming soon</p>
+    </section>
+
+    <section class="product-stage wrap" aria-label="How Umbod connects your tools">
+      <figure class="connection-preview">
+        <div class="preview-heading"><span class="preview-label">YOUR LOCAL TOOL SETUP</span><span class="preview-label">Connection illustration</span></div>
+        <div class="connection-canvas">
+          <div class="connection-column"><span class="preview-label">01 / YOUR AGENTS</span><div class="connection-item"><span class="connection-symbol" aria-hidden="true">⌘</span>Your coding agent</div><div class="connection-item"><span class="connection-symbol" aria-hidden="true">✳</span>Your desktop assistant</div><p>Use your preferred MCP clients.</p></div>
+          <div class="connection-wire" aria-hidden="true"><span>MCP</span></div>
+          <div class="connection-hub"><img src="/umbod-logo.svg" width="64" height="64" alt=""><strong>umbod</strong><span>Your connections.<br>Your permissions.</span><div class="local-indicator"><span class="diagram-dot" aria-hidden="true"></span>On your computer</div></div>
+          <div class="connection-wire" aria-hidden="true"><span>MCP</span></div>
+          <div class="connection-column"><span class="preview-label">02 / YOUR TOOLS</span><div class="connection-item"><span class="connection-symbol" aria-hidden="true">›_</span>Local MCP servers</div><div class="connection-item"><span class="connection-symbol" aria-hidden="true">↗</span>Remote MCP servers</div><p>Enable only the tools you need.</p></div>
+        </div>
+        <figcaption>Connect once. Set your permissions. Bring your next agent.</figcaption>
       </figure>
+      <div class="product-principles"><span>Native macOS app</span><span>Local gateway</span><span>Credentials in Keychain</span><a href="https://github.com/computerlovetech/umbod">Open source <span aria-hidden="true">↗</span></a></div>
     </section>
 
-    <section id="downloads" aria-labelledby="downloads-title">
-      <div class="wrap">
-        <p class="eyebrow">Get Umbod Desktop</p>
-        <h2 id="downloads-title">Desktop downloads</h2>
-        <p>Built for macOS 14 or later on Apple Silicon and Windows 10/11 on x64. There are no native builds for Intel Macs, Windows ARM, Linux, or mobile.</p>
-        <p class="download-safety">Initial builds are prereleases: macOS is ad-hoc signed, not notarized; Windows is unsigned. Do not disable system security to run them.</p>
-        <div id="desktop-download-options" aria-live="polite"><!-- desktop-downloads:start -->
-          <p>Desktop downloads are not available yet.</p>
-          <p><a class="text-link" href="/enterprise/">Explore the separate self-hosted edition <span aria-hidden="true">↗</span></a></p>
-        <!-- desktop-downloads:end --></div>
+    <section class="desktop-story wrap" aria-labelledby="local-title">
+      <div class="centered-heading"><p class="eyebrow">Less setup. More doing.</p><h2 id="local-title">A home for your agent’s tools.</h2><p>One place to connect, manage and understand<br class="wide-only"> the tools your agents can use.</p></div>
+      <div class="story-grid">
+        <article><span class="number">01 / CONNECT</span><h3>Bring your own tools.</h3><p>Add local MCP servers or remote HTTP connections. Discover what they can do from one app.</p></article>
+        <article><span class="number">02 / CHOOSE</span><h3>You decide what’s allowed.</h3><p>New tools start disabled. Enable the ones you need, with permissions shared across your connected clients.</p></article>
+        <article><span class="number">03 / USE</span><h3>Keep your setup together.</h3><p>See tool usage and manage your connections. The gateway stays available when you close the app window.</p></article>
       </div>
     </section>
 
-    <section class="desktop-features" aria-labelledby="local-title">
-      <div class="wrap">
-        <div class="section-head"><div><p class="eyebrow">A setup you control</p><h2 id="local-title">Keep your tool setup<br>in one place.</h2></div><p class="section-lead">Umbod Desktop is a single-user app with a local gateway. Use it with compatible MCP clients without running a server stack.</p></div>
-        <dl class="capability-list">
-          <div><dt>Connect local and remote tools</dt><dd>Add an executable MCP server or a Streamable HTTP endpoint. Discover its tools and enable the ones you need.</dd></div>
-          <div><dt>Set permissions across your clients</dt><dd>New tools start disabled. When you change a tool permission, it applies to subsequent calls from every client connected to this local gateway.</dd></div>
-          <div><dt>Keep credentials in the OS vault</dt><dd>Umbod stores credentials in macOS Keychain or Windows Credential Manager, with no plaintext fallback. OAuth supports native public clients with PKCE; individual providers are not certified.</dd></div>
-          <div><dt>See usage and manage the gateway</dt><dd>Check tool usage counts in the app. Closing the window leaves the gateway running; stop or restart it from Settings.</dd></div>
-        </dl>
+    <section class="community-section" aria-labelledby="community-title"><div class="wrap community-layout">
+      <div><p class="eyebrow">Built in the open</p><h2 id="community-title">Small team.<br>Open conversation.</h2><p>We’re Kasper and Jonas, the founders behind Umbod. We’d love to hear what you’re building, what’s missing, and where we should take it next.</p><div class="actions"><a class="button" href="https://discord.gg/mjrbtBYeS" target="_blank" rel="noreferrer">Join our Discord <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/computerlovetech/umbod">Explore the code <span aria-hidden="true">↗</span></a></div></div>
+      <div class="founders"><a class="founder" href="https://www.linkedin.com/in/kasper-juunge/" target="_blank" rel="noreferrer"><span class="founder-initials" aria-hidden="true">KJ</span><span><strong>Kasper Junge</strong><small>Co-founder · Say hello on LinkedIn</small></span><span aria-hidden="true">↗</span></a><a class="founder" href="https://www.linkedin.com/in/jonas-h%C3%B8gh-kyhse-andersen-04b66618/" target="_blank" rel="noreferrer"><span class="founder-initials" aria-hidden="true">JK</span><span><strong>Jonas Høgh Kyhse Andersen</strong><small>Co-founder · Say hello on LinkedIn</small></span><span aria-hidden="true">↗</span></a><p>Follow along on <a href="https://x.com/umbodai" target="_blank" rel="noreferrer">X <span aria-hidden="true">↗</span></a></p></div>
+    </div></section>
+
+    <section class="desktop-faq wrap faq-layout" aria-labelledby="questions-title">
+      <div><p class="eyebrow">Good to know</p><h2 id="questions-title">A few questions,<br>answered.</h2></div>
+      <div>
+        <details><summary>What is Umbod?</summary><p>A native app that connects your AI agents to MCP tools through a local gateway. Manage connections and choose which tools your agents can use.</p></details>
+        <details><summary>Which computers does it support?</summary><p>We’re starting with macOS 14 or later on Apple Silicon. Windows, Linux and Intel Mac downloads are coming soon. See the <a href="/download/">download page</a> for availability.</p></details>
+        <details><summary>Does everything stay on my computer?</summary><p>Your gateway and configuration run locally, and credentials are stored in macOS Keychain. Your agents and remote MCP servers can still send data to their own services.</p></details>
+        <details><summary>Which MCP connections can I use?</summary><p>Local stdio servers and remote Streamable HTTP servers. Desktop currently supports tools; legacy standalone SSE, resources, prompts and sampling are not supported.</p></details>
+        <details><summary>What if I’m setting this up for a team?</summary><p>Explore <a href="/enterprise/">Umbod Enterprise</a> for shared connectors, group permissions and Kubernetes deployment on your infrastructure.</p></details>
+        <details><summary>Can I build it myself?</summary><p>Yes. Umbod is open source. Follow the <a href="https://github.com/computerlovetech/umbod/tree/e9944425a33a9a144762fd77302915b7e33cedca/desktop#build-and-test">desktop build instructions</a> to get started.</p></details>
       </div>
     </section>
-
-    <section class="desktop-faq wrap" aria-labelledby="questions-title">
-      <div class="section-head"><div><p class="eyebrow">Before you start</p><h2 id="questions-title">A few practical details.</h2></div></div>
-      <details><summary>Does local mean everything stays on my computer?</summary><p>The gateway and its configuration run locally. Remote MCP servers and your chosen agent can send data to their own services. Their privacy policies still apply.</p></details>
-      <details><summary>What does the desktop app support?</summary><p>Local stdio and remote Streamable HTTP MCP tools. Legacy standalone SSE servers, resources, prompts, sampling, and argument-level policies are not supported. Windows stdio connectors need an executable such as node.exe, not a .cmd or .bat wrapper.</p></details>
-      <details><summary>Is Desktop the same as the enterprise edition?</summary><p>No. Desktop is for one person. The <a href="/enterprise/">enterprise edition</a> manages shared connectors and group access on your infrastructure. Configuration portability between the editions is not implemented.</p></details>
-      <details><summary>Can I build it myself?</summary><p>Yes. The <a href="https://github.com/computerlovetech/umbod/tree/d41b8aac1270c4558722e43b090ccb69125f7bd6/desktop#build-and-test">desktop build instructions</a> cover prerequisites and local builds. There is no automatic updater or login supervisor yet.</p></details>
-    </section>
-
-    <section class="feedback" aria-labelledby="next-title"><div class="wrap feedback-grid"><div><p class="eyebrow">Start with your own tools</p><h2 id="next-title">Make room for<br>your next agent.</h2></div><div><p>Check the desktop builds, or join the community to share what works and what needs attention.</p><div class="actions"><a class="button" href="#downloads" data-desktop-cta>Desktop downloads <span aria-hidden="true">↓</span></a><a class="text-link" href="https://discord.gg/mjrbtBYeS" target="_blank" rel="noreferrer">Join the Discord <span aria-hidden="true">↗</span></a></div></div></div></section>
+    <section class="closing-cta wrap" aria-labelledby="next-title"><img src="/umbod-logo.svg" width="54" height="54" alt=""><h2 id="next-title">Your next agent.<br>Already connected.</h2><p>Make a little room for your tools.</p><div class="actions"><a class="button" href="/download/">Get Umbod for Mac <span aria-hidden="true">↓</span></a><a class="button secondary" href="https://discord.gg/mjrbtBYeS" target="_blank" rel="noreferrer">Join the community <span aria-hidden="true">↗</span></a></div></section>
   </main>
   {{ partial.footer }}
   <script type="module" src="/src/site.mjs"></script>
-  <script type="module">
-    import { initializeDownloads } from '/src/downloads.mjs';
-    initializeDownloads();
-  </script>
 </body>
 </html>

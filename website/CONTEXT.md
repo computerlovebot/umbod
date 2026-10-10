@@ -8,13 +8,15 @@ The website has two conversion paths under one restrained Umbod identity:
   gateway, shared per-tool permissions across local clients, and desktop downloads.
   State availability, OS/architecture support and prerelease signing limits honestly.
   Do not present cluster installation, group administration or the platform video as
-  desktop capabilities. A labeled connection diagram is preferable to a fake screenshot.
+  desktop capabilities. Use a centered hero and large, labeled connection illustration until the real desktop recording is ready (issue #6).
+- `/download/` presents macOS Apple Silicon first; Windows, Linux and Intel Mac
+  remain Coming soon. Activate the Mac DMG link only from a verified release manifest.
 - `/enterprise/` introduces the self-hosted platform to platform teams. Keep the
   existing connectors, group permissions, Kubernetes walkthrough and beta limits here.
   Lead with contact and self-hosting docs, and retain the local cluster evaluation guide.
 
 The shared navigation includes Docs, Enterprise and Download. Download always returns
-to `/#downloads`. This follows Orca's separation of individual and enterprise journeys,
+to `/download/`. This follows Orca's separation of individual and enterprise journeys,
 not its copy, visual identity, testimonials or unsupported product claims.
 
 Keep documentation accessible and distinguish current beta capabilities from future
@@ -56,7 +58,8 @@ adoption, and community practice:
 - Orca — high-fidelity product theatre, rapid public shipping, changelog discipline, broad
   platform support, testimonials, and community distribution.
 
-Use these as principles rather than visual templates. Preserve the restrained,
+Borrow Orca’s centered hero, prominent product stage, download grid and spacious
+footer while keeping Umbod’s light background, green accents, logo and typography. Preserve the restrained,
 spacious design and use product evidence, such as an architecture diagram. Defer
 mascot branding until after launch and further public product iterations.
 

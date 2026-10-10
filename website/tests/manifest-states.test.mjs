@@ -23,7 +23,7 @@ for (const manifest of [{ schemaVersion: 1, status: 'unavailable' }, available])
   test(`website checks accept a checked-in ${manifest.status} manifest`, () => {
     const root = mkdtempSync(join(tmpdir(), 'umbod-manifest-state-'));
     try {
-      for (const path of ['src', 'scripts', 'index.html']) {
+      for (const path of ['src', 'scripts', 'index.html', 'download']) {
         cpSync(new URL(`../${path}`, import.meta.url), join(root, path), { recursive: true });
       }
       mkdirSync(join(root, 'tests'));
