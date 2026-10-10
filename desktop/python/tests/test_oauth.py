@@ -12,6 +12,7 @@ from umbod.core.connectors.downstream_mcp.adapters.fastmcp.oauth import (
     ConnectorOAuth,
     SignInRequired,
 )
+
 from umbod_desktop.oauth import DesktopOAuth, KeychainOAuthStorage
 
 

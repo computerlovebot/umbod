@@ -2,6 +2,7 @@ import json
 
 import pytest
 from umbod.rest.authentication.authorization import JwtVerificationError
+
 from umbod_desktop.client_setup import ClientSetup
 from umbod_desktop.configuration import desktop_settings
 from umbod_desktop.security import DesktopAdminVerifier, DesktopAgentVerifier
@@ -98,6 +99,7 @@ async def test_legacy_agent_credentials_keep_only_agent_access(tmp_path):
 
 async def test_existing_encrypted_database_never_generates_replacement_key(tmp_path):
     from test_runtime import MemoryVault
+
     from umbod_desktop.runtime import create_desktop_app
 
     (tmp_path / "backend.sqlite3").touch()

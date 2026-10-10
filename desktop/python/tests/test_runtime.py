@@ -10,6 +10,7 @@ import uvicorn
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
+
 from umbod_desktop.runtime import create_desktop_app
 from umbod_desktop.security import DESKTOP_GROUP, persistent_secret
 
