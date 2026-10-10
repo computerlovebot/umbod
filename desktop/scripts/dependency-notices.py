@@ -18,14 +18,14 @@ def is_notice(path):
 
 
 def supplement(key):
-    sources = json.loads((SUPPLEMENTS / "sources.json").read_text())
+    sources = json.loads((SUPPLEMENTS / "sources.json").read_text(encoding="utf-8"))
     entry = sources.get(key)
     if entry is None:
         raise ValueError(f"Missing dependency notice: {key}; review and add a version-pinned source")
     path = SUPPLEMENTS / entry["file"]
     if hashlib.sha256(path.read_bytes()).hexdigest() != entry["notice_sha256"]:
         raise ValueError(f"Supplemental notice checksum mismatch: {key}")
-    return [(entry["source"], path.read_text())]
+    return [(entry["source"], path.read_text(encoding="utf-8"))]
 
 
 def python_entries():
@@ -33,10 +33,10 @@ def python_entries():
         name, version = dist.metadata["Name"], dist.version
         if name in {"umbod", "umbod-core", "umbod-desktop"}:
             continue
-        files = [(str(path), dist.locate_file(path).read_text(errors="replace")) for path in dist.files or [] if is_notice(Path(path)) and dist.locate_file(path).is_file()]
+        files = [(str(path), dist.locate_file(path).read_text(encoding="utf-8")) for path in dist.files or [] if is_notice(Path(path)) and dist.locate_file(path).is_file()]
         yield name, version, dist.metadata.get("License-Expression") or dist.metadata.get("License") or "See retained notices", files or supplement(f"{name}-{version}")
     version = ".".join(map(str, sys.version_info[:3]))
-    build = (Path(sys.base_prefix) / "BUILD").read_text().strip()
+    build = (Path(sys.base_prefix) / "BUILD").read_text(encoding="utf-8").strip()
     yield "CPython and bundled native libraries", f"{version}-{build}", "See retained notices", supplement(f"cpython-{version}-{build}")
 
 
@@ -46,19 +46,19 @@ def rust_entries(cargo):
         if not package["source"]:
             continue
         root = Path(package["manifest_path"]).parent
-        files = [(path.relative_to(root).as_posix(), path.read_text(errors="replace")) for path in sorted(root.rglob("*")) if path.is_file() and is_notice(path)]
+        files = [(path.relative_to(root).as_posix(), path.read_text(encoding="utf-8")) for path in sorted(root.rglob("*")) if path.is_file() and is_notice(path)]
         yield package["name"], package["version"], package["license"] or "See retained notices", files or supplement(f'{package["name"]}-{package["version"]}')
 
 
 def dotnet_entries(publish, package_cache):
-    manifest = json.loads((publish / "Umbod.Windows.deps.json").read_text())
+    manifest = json.loads((publish / "Umbod.Windows.deps.json").read_text(encoding="utf-8"))
     versions = sorted(key for key in manifest["libraries"] if key.lower().startswith("runtimepack."))
     if not versions:
         raise ValueError("Missing self-contained .NET runtime identities")
     for identity in versions:
         name, version = identity.removeprefix("runtimepack.").split("/")
         root = package_cache / name.lower() / version
-        files = [(path.name, path.read_text(errors="replace")) for path in sorted(root.glob("*")) if path.is_file() and is_notice(path)]
+        files = [(path.name, path.read_text(encoding="utf-8")) for path in sorted(root.glob("*")) if path.is_file() and is_notice(path)]
         if name == "Microsoft.WindowsDesktop.App.Runtime.win-x64":
             files += supplement(f"dotnet-wpf-{version}") + supplement(f"dotnet-winforms-{version}")
         if not any("third" in filename.lower() for filename, _ in files) or not any("license" in filename.lower() for filename, _ in files):
@@ -75,7 +75,7 @@ def main():
     parser.add_argument("--nuget-packages", type=Path, default=Path(os.environ.get("NUGET_PACKAGES", str(Path.home() / ".nuget/packages"))))
     args = parser.parse_args()
     entries = list(python_entries()) if args.platform == "python" else [*rust_entries(args.cargo), *dotnet_entries(args.publish, args.nuget_packages)]
-    notices = ["Umbod Desktop third-party notices\n\nUmbod source license\n" + (DESKTOP.parent / "LICENSE").read_text()]
+    notices = ["Umbod Desktop third-party notices\n\nUmbod source license\n" + (DESKTOP.parent / "LICENSE").read_text(encoding="utf-8")]
     inventory = []
     for name, version, license_id, files in entries:
         notices.append(f"\n{'=' * 72}\n{name} {version}\nDeclared license: {license_id}")
