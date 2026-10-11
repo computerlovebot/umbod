@@ -224,48 +224,40 @@ struct Panel<Content: View>: View {
 struct ServerEditor: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
-    @State var draft: ServerDraft
-    @State private var credentialName = "Authorization"
-    @State private var credential = ""
+    @StateObject private var editor: ConnectorEditor
+    init(draft: ServerDraft) { _editor = StateObject(wrappedValue: ConnectorEditor(draft: draft)) }
     @State private var localError = ""
-    @State private var saving = false
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(draft.id.isEmpty ? "Add connector" : "Edit connector").font(.title2.bold())
+            Text(editor.draft.id.isEmpty ? "Add connector" : "Edit connector").font(.title2.bold())
             ScrollView { VStack(alignment: .leading, spacing: 16) {
-                TextField("Name", text: $draft.name)
-                Picker("Connection", selection: $draft.transport) { Text("Local process · stdio").tag("stdio"); Text("Remote · Streamable HTTP").tag("http") }
-                if draft.transport == "stdio" {
-                    TextField("Executable (absolute path)", text: $draft.command)
+                TextField("Name", text: $editor.draft.name).accessibilityIdentifier("connector.name")
+                Picker("Connection", selection: $editor.draft.transport) { Text("Local process · stdio").tag("stdio"); Text("Remote · Streamable HTTP").tag("http") }
+                if editor.draft.transport == "stdio" {
+                    TextField("Executable (absolute path)", text: $editor.draft.command).accessibilityIdentifier("connector.command")
                     Text("Arguments · one per line, no shell quoting").font(.caption).foregroundStyle(Brand.muted)
-                    TextEditor(text: $draft.arguments).font(.system(.body, design: .monospaced)).frame(height: 65).padding(8).background(Brand.canvas).overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.border))
-                } else { TextField("Endpoint URL", text: $draft.url) }
+                    TextEditor(text: $editor.draft.arguments).accessibilityIdentifier("connector.arguments").font(.system(.body, design: .monospaced)).frame(height: 65).padding(8).background(Brand.canvas).overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.border))
+                } else { TextField("Endpoint URL", text: $editor.draft.url) }
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Optional credential · stored only in Keychain").font(.system(size: 14, weight: .semibold)).padding(.top, 8)
-                    TextField(draft.transport == "stdio" ? "Environment variable name" : "Header name (Authorization, X-API-Key…)", text: $credentialName)
-                    SecureField(draft.transport == "stdio" ? "Secret environment value" : "Header value (include Bearer prefix for a bearer token)", text: $credential)
+                    TextField(editor.draft.transport == "stdio" ? "Environment variable name" : "Header name (Authorization, X-API-Key…)", text: $editor.credentialName)
+                    SecureField(editor.draft.transport == "stdio" ? "Secret environment value" : "Header value (include Bearer prefix for a bearer token)", text: $editor.credential)
                     Text("Leave blank for no change. Use browser sign-in after saving for OAuth.").font(.caption).foregroundStyle(Brand.muted)
                 }
-                DisclosureGroup("Advanced credential references") { Text("JSON maps names to upstream: Keychain references. Never put secret values here.").font(.caption); TextField("Headers", text: $draft.headerReferences); TextField("Environment", text: $draft.environmentReferences) }
-            }.padding(2) }.textFieldStyle(BrandTextFieldStyle())
-            if !draft.id.isEmpty { Text("Saving edits disconnects this connector and resets its shared tool permissions. Reconnect and enable the tools you want.").font(.caption).foregroundStyle(Brand.muted) }
+                DisclosureGroup("Advanced credential references") { Text("JSON maps names to upstream: Keychain references. Never put secret values here.").font(.caption); TextField("Headers", text: $editor.draft.headerReferences); TextField("Environment", text: $editor.draft.environmentReferences) }
+            }.padding(2) }.textFieldStyle(BrandTextFieldStyle()).disabled(editor.saving)
+            if !editor.draft.id.isEmpty { Text("Saving edits disconnects this connector and resets its shared tool permissions. Reconnect and enable the tools you want.").font(.caption).foregroundStyle(Brand.muted) }
             if !localError.isEmpty { Text(localError).foregroundStyle(Brand.danger) }
-            HStack { Spacer(); Button("Cancel") { dismiss() }; Button(saving ? "Saving…" : "Save connector") { save() }.buttonStyle(BrandButtonStyle(primary: true)).disabled(saving || draft.name.isEmpty) }
+            HStack { Spacer(); Button("Cancel") { dismiss() }; Button(editor.saving ? "Saving…" : "Save connector") { save() }.buttonStyle(BrandButtonStyle(primary: true)).disabled(editor.saving || editor.draft.name.isEmpty).accessibilityIdentifier("connector.save") }
         }.padding(24).frame(width: 620, height: 660).modifier(BrandAppearance())
     }
     func save() {
-        Task { saving = true; defer { saving = false }
+        Task {
             do {
-                if draft.id.isEmpty { draft.id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() }
-                var payload = try draft.payload()
-                if !credential.isEmpty {
-                    guard !credentialName.isEmpty else { throw ContractError.message("Enter a credential header or environment name") }
-                    let reference = "upstream:\(draft.id):\(credentialName)"
-                    _ = try await model.backend.request(["action": "secret_set", "reference": reference, "value": credential]); credential = ""
-                    let key = draft.transport == "stdio" ? "env" : "headers"
-                    var references = payload[key] as? [String: String] ?? [:]; references[credentialName] = reference; payload[key] = references
-                }
-                _ = try await model.backend.request(["action": "server_save", "server": payload]); try await model.refresh(); dismiss()
+                localError = ""
+                try await editor.save { try await model.backend.request($0) }
+                try await model.refresh()
+                dismiss()
             } catch { localError = error.localizedDescription }
         }
     }

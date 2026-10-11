@@ -16,7 +16,7 @@ struct ServersView: View {
                 Button { selectedConnector = nil } label: { Label("All connectors", systemImage: "chevron.left") }
                 ConnectorToolsView(connector: connector, manage: { sheet = .manage(id) }).id(id)
             } else {
-                Button { sheet = .add } label: { Label("Add connector", systemImage: "plus") }.buttonStyle(BrandButtonStyle(primary: true))
+                Button { sheet = .add } label: { Label("Add connector", systemImage: "plus") }.buttonStyle(BrandButtonStyle(primary: true)).accessibilityIdentifier("connectors.add")
                 if model.servers.isEmpty {
                     ContentUnavailableView("No connectors yet", systemImage: "externaldrive.badge.plus", description: Text("Add a connector to make its tools available to your apps."))
                 } else {
@@ -39,7 +39,7 @@ struct ServersView: View {
                                         Text("\(tools.filter { model.allowedTools.contains($0["name"] as? String ?? "") }.count) / \(tools.count) tools enabled").font(.caption).foregroundStyle(Brand.muted)
                                         Image(systemName: "chevron.right").foregroundStyle(Brand.muted)
                                     }.padding(.vertical, 6).contentShape(Rectangle())
-                                }.buttonStyle(.plain)
+                                }.buttonStyle(.plain).accessibilityIdentifier("connector.row.\(server["name"] as? String ?? "")")
                                 Menu {
                                     Button("Connection settings") { sheet = .manage(id) }
                                     Button("Connect / rediscover") { model.act(["action":"connect", "id":id]) }.disabled(model.busy)
@@ -191,6 +191,6 @@ struct ConnectorToolsView: View {
     }
     private func permissionToggle(_ name: String) -> some View {
         Toggle("Allow \(String(name.dropFirst(id.count + 1)))", isOn: Binding(get: { model.allowedTools.contains(name) }, set: { model.act(["action":"grant", "tool":name, "allow":$0]) }))
-            .labelsHidden().toggleStyle(.switch).controlSize(.small).disabled(model.busy)
+            .accessibilityIdentifier("tool.allow.\(String(name.dropFirst(id.count + 1)))").labelsHidden().toggleStyle(.switch).controlSize(.small).disabled(model.busy)
     }
 }
