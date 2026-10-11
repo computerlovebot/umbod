@@ -15,7 +15,7 @@
   100000000000000000000009 = {isa = PBXBuildFile; fileRef = 100000000000000000000005;};
   100000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (100000000000000000000012); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug;};
   100000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (100000000000000000000013); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug;};
-  100000000000000000000012 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 14.0; SWIFT_VERSION = 6.0; ARCHS = arm64; ONLY_ACTIVE_ARCH = YES;};};
+  100000000000000000000012 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 14.0; SWIFT_VERSION = 6.0; ARCHS = arm64; ONLY_ACTIVE_ARCH = YES;};};
   100000000000000000000013 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {PRODUCT_BUNDLE_IDENTIFIER = app.umbod.tests.ConnectorJourney; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_HARDENED_RUNTIME = NO;};};
  };
  rootObject = 100000000000000000000001;

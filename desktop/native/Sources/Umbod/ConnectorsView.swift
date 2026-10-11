@@ -10,9 +10,17 @@ struct ServersView: View {
     @State private var sheet: ConnectorSheet?
     @Binding var selectedConnector: String?
     @State private var removal: String?
+    // An offline draft receives its backend ID after first successful discovery.
+    // Keep the selected detail and sheet attached through its stable host identity.
+    private func connector(_ id: String) -> [String: Any]? {
+        model.servers.first {
+            $0["id"] as? String == id ||
+            (id.hasPrefix("pending:") && $0["host_id"] as? String == String(id.dropFirst("pending:".count)))
+        }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            if let id = selectedConnector, let connector = model.servers.first(where: { $0["id"] as? String == id }) {
+            if let id = selectedConnector, let connector = connector(id) {
                 Button { selectedConnector = nil } label: { Label("All connectors", systemImage: "chevron.left") }
                 ConnectorToolsView(connector: connector, manage: { sheet = .manage(id) }).id(id)
             } else {
@@ -58,9 +66,9 @@ struct ServersView: View {
             switch route {
             case .add: ServerEditor(draft: ServerDraft())
             case .edit(let id):
-                if let server = model.servers.first(where: { $0["id"] as? String == id }) { ServerEditor(draft: ServerDraft(server)) }
+                if let server = connector(id) { ServerEditor(draft: ServerDraft(server)) }
             case .manage(let id):
-                if let server = model.servers.first(where: { $0["id"] as? String == id }) {
+                if let server = connector(id) {
                     ConnectorManagementView(server: server, edit: { sheet = .edit(id) })
                 }
             }

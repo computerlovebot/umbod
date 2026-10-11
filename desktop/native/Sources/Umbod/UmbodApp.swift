@@ -232,12 +232,12 @@ struct ServerEditor: View {
             Text(editor.draft.id.isEmpty ? "Add connector" : "Edit connector").font(.title2.bold())
             ScrollView { VStack(alignment: .leading, spacing: 16) {
                 TextField("Name", text: $editor.draft.name).accessibilityIdentifier("connector.name")
-                Picker("Connection", selection: $editor.draft.transport) { Text("Local process · stdio").tag("stdio"); Text("Remote · Streamable HTTP").tag("http") }
+                Picker("Connection", selection: $editor.draft.transport) { Text("Local process · stdio").tag("stdio"); Text("Remote · Streamable HTTP").tag("http") }.accessibilityIdentifier("connector.transport")
                 if editor.draft.transport == "stdio" {
                     TextField("Executable (absolute path)", text: $editor.draft.command).accessibilityIdentifier("connector.command")
                     Text("Arguments · one per line, no shell quoting").font(.caption).foregroundStyle(Brand.muted)
-                    TextEditor(text: $editor.draft.arguments).accessibilityIdentifier("connector.arguments").font(.system(.body, design: .monospaced)).frame(height: 65).padding(8).background(Brand.canvas).overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.border))
-                } else { TextField("Endpoint URL", text: $editor.draft.url) }
+                    TextEditor(text: $editor.draft.arguments).accessibilityIdentifier("connector.arguments").font(.system(.body, design: .monospaced)).frame(height: 65).padding(8).background(Brand.canvas).overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.border).allowsHitTesting(false))
+                } else { TextField("Endpoint URL", text: $editor.draft.url).accessibilityIdentifier("connector.url") }
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Optional credential · stored only in Keychain").font(.system(size: 14, weight: .semibold)).padding(.top, 8)
                     TextField(editor.draft.transport == "stdio" ? "Environment variable name" : "Header name (Authorization, X-API-Key…)", text: $editor.credentialName)
