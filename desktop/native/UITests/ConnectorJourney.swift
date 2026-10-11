@@ -7,18 +7,18 @@ final class ConnectorJourney: XCTestCase {
         let env = ProcessInfo.processInfo.environment
         let appPath = try XCTUnwrap(env["UMBOD_UI_APP"])
         let fixture = try XCTUnwrap(env["UMBOD_UI_FIXTURE"])
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("umbod-test-ui-" + UUID().uuidString)
+        let directory = URL(fileURLWithPath: try XCTUnwrap(env["UMBOD_UI_DATA_DIR"]))
         let app = XCUIApplication(url: URL(fileURLWithPath: appPath))
         app.launchArguments = ["--data-dir", directory.path, "--test-credentials"]
-        defer {
+        addTeardownBlock { @MainActor in
             let screenshot = XCTAttachment(screenshot: app.screenshot())
             screenshot.lifetime = .keepAlways
-            add(screenshot)
+            self.add(screenshot)
             app.terminate()
             try? FileManager.default.removeItem(at: directory)
         }
         app.launch()
-        XCTAssertTrue(app.staticTexts["Gateway running"].waitForExistence(timeout: 60))
+        XCTAssertTrue(app.staticTexts["Gateway running"].waitForExistence(timeout: 60), app.staticTexts.allElementsBoundByIndex.map { String(describing: $0.value) }.joined(separator: "\n"))
         app.buttons["Connectors"].click()
         app.buttons["connectors.add"].click()
         let name = app.textFields["connector.name"]
@@ -54,7 +54,7 @@ final class ConnectorJourney: XCTestCase {
         XCTAssertTrue(app.buttons["connector.save"].waitForNonExistence(timeout: 60))
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.staticTexts["Gateway running"].waitForExistence(timeout: 60))
+        XCTAssertTrue(app.staticTexts["Gateway running"].waitForExistence(timeout: 60), app.staticTexts.allElementsBoundByIndex.map { String(describing: $0.value) }.joined(separator: "\n"))
         app.buttons["Connectors"].click()
         XCTAssertTrue(app.buttons["connector.row.UI fixture edited"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["connector.row.UI fixture"].exists, "Editing must not create a duplicate")
