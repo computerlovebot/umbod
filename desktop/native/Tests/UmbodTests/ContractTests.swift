@@ -29,7 +29,7 @@ import UmbodCore
         precondition(!config.contains("alice"))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("umbod-test-" + UUID().uuidString)
         let backend = Backend()
-        let desktop = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let desktop = ProcessInfo.processInfo.environment["UMBOD_TEST_RESOURCES"].map { URL(fileURLWithPath: $0) } ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let app = ProcessInfo.processInfo.environment["UMBOD_TEST_APP"].map { URL(fileURLWithPath: $0) } ?? desktop.appendingPathComponent("dist/Umbod Dev.app")
         let executable = app.appendingPathComponent("Contents/MacOS/umbod-desktop")
         let profile = try String(contentsOf: app.appendingPathComponent("Contents/Resources/umbod-profile"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)

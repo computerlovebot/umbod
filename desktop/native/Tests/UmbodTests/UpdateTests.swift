@@ -2,7 +2,7 @@ import Foundation
 import UmbodCore
 
 func updateTests() throws {
-    let desktop = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let desktop = ProcessInfo.processInfo.environment["UMBOD_TEST_RESOURCES"].map { URL(fileURLWithPath: $0) } ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let data = try Data(contentsOf: desktop.appendingPathComponent("tests/fixtures/update-manifest.json"))
     let update = try DesktopUpdate.parse(data, installed: "0.2.0")
     precondition(update?.version == "0.10.0", "Compare numeric versions, not strings")

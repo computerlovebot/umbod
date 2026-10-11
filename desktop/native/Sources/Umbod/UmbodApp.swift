@@ -54,7 +54,7 @@ import UmbodCore
                         window.makeKeyAndOrderFront(nil)
                         reopened = window.isVisible
                     }
-                    let report: [String: Any] = ["backgroundSurvivedClose":survived,"reopened":reopened].merging( ["backendRunning": backend.isRunning, "backendPID": backend.processID, "bundlePath": Bundle.main.bundlePath, "gateway": backend.gateway,
+                    let report: [String: Any] = ["backgroundSurvivedClose":survived,"reopened":reopened].merging( ["backendRunning": backend.isRunning, "backendPID": backend.processID, "bundlePath": Bundle.main.bundlePath, "bundleIdentifier": Bundle.main.bundleIdentifier ?? "", "gateway": backend.gateway,
                         "serverCount": servers.count, "windowCount": NSApp.windows.count,
                         "windows": NSApp.windows.map { ["title": $0.title, "visible": $0.isVisible, "width": $0.frame.width, "height": $0.frame.height] as [String: Any] }]) { _, new in new }
                     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: path))

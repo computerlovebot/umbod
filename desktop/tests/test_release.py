@@ -123,7 +123,7 @@ class ReleaseTests(unittest.TestCase):
         for required in ['release.py guard', 'needs: [guard, build]', '--prerelease', '--latest=false', '--verify-tag', 'desktop-release', 'website-manifest-update', 'rights_confirmed', 'persist-credentials: false']:
             self.assertIn(required, workflow)
         build = (ROOT/'.github/workflows/desktop-build.yml').read_text()
-        for required in ['macos-15', 'windows-latest', 'cargo test --locked', 'bash scripts/verify.sh', '--smoke-test', 'upload-artifact@', 'bun run build', 'test_release_workflow.py']:
+        for required in ['macos-26', 'windows-latest', 'cargo test --locked', 'bash scripts/verify.sh', '--smoke-test', 'upload-artifact@', 'bun run build', 'test_release_workflow.py']:
             self.assertIn(required, build)
         verify = (ROOT/'desktop/scripts/verify.sh').read_text()
         self.assertIn('UmbodTests', verify)

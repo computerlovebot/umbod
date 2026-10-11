@@ -54,6 +54,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 PLIST
+python3 scripts/record-macos-build.py "$APP"
+"$APP/Contents/Resources/python/bin/python3" -I -B scripts/audit-macos-bundle.py "$APP"
 # Local/CI builds never search or use a developer's signing identity.
 # Production publishing is disabled by release.py until verified signing exists.
 while IFS= read -r -d '' binary; do

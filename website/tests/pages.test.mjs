@@ -15,7 +15,7 @@ test('home and enterprise have separate audiences and truthful product evidence'
   const home = read('index.html');
   assert.match(home, /Your tools\. Your agents\./);
   assert.match(home, /Apple Silicon/);
-  assert.match(home, /Windows · x64/);
+  assert.match(home, /Windows · Coming soon/);
   assert.match(home, /Connection illustration/i);
   assert.doesNotMatch(home, /tree\/main\/desktop/, 'desktop is not on main before this PR merges');
   assert.doesNotMatch(home, /kind create cluster|Grant access by group|umbod-overview\.mp4/);
@@ -66,7 +66,7 @@ for (const status of ['unavailable', 'available']) {
       assert.doesNotMatch(pages[1], /desktop-download-options|releases\/download/);
       if (status === 'available') {
         assert.ok(pages[2].includes(manifest.assets['macos-arm64'].url));
-        assert.ok(pages[2].includes(manifest.assets['windows-x64'].url));
+        assert.ok(!pages[2].includes(manifest.assets['windows-x64'].url));
         assert.match(pages[2], /Unsigned prerelease/);
         assert.match(pages[2], /SHA-256/);
       } else {
