@@ -65,7 +65,14 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                             await task
                     await asyncio.sleep(0.02)
             async with httpx.AsyncClient(
-                base_url=origin, headers={"Authorization": f"Bearer {token}"}
+                base_url=origin,
+                headers={"Authorization": f"Bearer {token}"},
+                # This client sits idle while a separate MCP client discovers and
+                # invokes tools. HTTPX and Uvicorn both default to a five-second
+                # keep-alive expiry, so reusing that socket can race server close.
+                # Use fresh management connections; keep every behavior assertion
+                # and let transport failures fail immediately (no retry masking).
+                limits=httpx.Limits(max_keepalive_connections=0),
             ) as client:
                 assert (await client.get("/desktop/health")).status_code == 200
                 assert (

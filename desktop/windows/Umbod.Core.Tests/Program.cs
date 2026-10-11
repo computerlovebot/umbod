@@ -1,5 +1,7 @@
 using System.Text.Json.Nodes;
 using Umbod.Core;
+UpdateTests.Run();
+if (args.Contains("--updates-only")) return;
 static void Check(bool value, string message) { if (!value) throw new Exception(message); Console.WriteLine("PASS " + message); }
 var startupError = false;
 try { GatewayStartup.Parse("{\"error\":\"fixture bind denied\"}"); } catch (IOException e) { startupError = e.Message == "fixture bind denied"; }
