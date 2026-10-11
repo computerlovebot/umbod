@@ -4,6 +4,7 @@ import UmbodCore
     static func log(_ value: String) { FileHandle.standardOutput.write(Data((value + "\n").utf8)) }
     @MainActor static func main() async throws {
         try updateTests()
+        try await connectorEditorTests()
         if CommandLine.arguments.contains("--updates-only") { return }
         precondition(ActivationState([:]).stage == .choose)
         let journey: [String: Any] = ["client":"c", "server":"s", "configured":false, "activated":false]
@@ -52,8 +53,12 @@ import UmbodCore
         log("PASS: native startup exposes actionable saved-port conflict")
         server.command = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/python/bin/python3").path
         server.arguments = "-B\n" + desktop.appendingPathComponent("scripts/fixture_stdio.py").path
-        let saved = try await backend.request(["action": "server_save", "server": try server.payload()])
-        let savedServer = saved["server"] as! [String: Any]
+        let editor = ConnectorEditor(draft: server)
+        editor.credentialName = "UMBOD_FIXTURE_SECRET"
+        editor.credential = "fixture-only"
+        editor.draft.arguments += "\n--require-env"
+        try await editor.save { try await backend.request($0) }
+        let savedServer: [String: Any] = ["id": editor.draft.id]
         _ = try await backend.request(["action": "connect", "id": savedServer["id"]!])
         let connected = try await backend.request(["action": "status"])
         precondition((connected["tools"] as? [Any])?.count == 2)

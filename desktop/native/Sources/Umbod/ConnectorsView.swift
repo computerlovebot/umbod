@@ -10,13 +10,21 @@ struct ServersView: View {
     @State private var sheet: ConnectorSheet?
     @Binding var selectedConnector: String?
     @State private var removal: String?
+    // An offline draft receives its backend ID after first successful discovery.
+    // Keep the selected detail and sheet attached through its stable host identity.
+    private func connector(_ id: String) -> [String: Any]? {
+        model.servers.first {
+            $0["id"] as? String == id ||
+            (id.hasPrefix("pending:") && $0["host_id"] as? String == String(id.dropFirst("pending:".count)))
+        }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            if let id = selectedConnector, let connector = model.servers.first(where: { $0["id"] as? String == id }) {
+            if let id = selectedConnector, let connector = connector(id) {
                 Button { selectedConnector = nil } label: { Label("All connectors", systemImage: "chevron.left") }
                 ConnectorToolsView(connector: connector, manage: { sheet = .manage(id) }).id(id)
             } else {
-                Button { sheet = .add } label: { Label("Add connector", systemImage: "plus") }.buttonStyle(BrandButtonStyle(primary: true))
+                Button { sheet = .add } label: { Label("Add connector", systemImage: "plus") }.buttonStyle(BrandButtonStyle(primary: true)).accessibilityIdentifier("connectors.add")
                 if model.servers.isEmpty {
                     ContentUnavailableView("No connectors yet", systemImage: "externaldrive.badge.plus", description: Text("Add a connector to make its tools available to your apps."))
                 } else {
@@ -39,7 +47,7 @@ struct ServersView: View {
                                         Text("\(tools.filter { model.allowedTools.contains($0["name"] as? String ?? "") }.count) / \(tools.count) tools enabled").font(.caption).foregroundStyle(Brand.muted)
                                         Image(systemName: "chevron.right").foregroundStyle(Brand.muted)
                                     }.padding(.vertical, 6).contentShape(Rectangle())
-                                }.buttonStyle(.plain)
+                                }.buttonStyle(.plain).accessibilityIdentifier("connector.row.\(server["name"] as? String ?? "")")
                                 Menu {
                                     Button("Connection settings") { sheet = .manage(id) }
                                     Button("Connect / rediscover") { model.act(["action":"connect", "id":id]) }.disabled(model.busy)
@@ -58,9 +66,9 @@ struct ServersView: View {
             switch route {
             case .add: ServerEditor(draft: ServerDraft())
             case .edit(let id):
-                if let server = model.servers.first(where: { $0["id"] as? String == id }) { ServerEditor(draft: ServerDraft(server)) }
+                if let server = connector(id) { ServerEditor(draft: ServerDraft(server)) }
             case .manage(let id):
-                if let server = model.servers.first(where: { $0["id"] as? String == id }) {
+                if let server = connector(id) {
                     ConnectorManagementView(server: server, edit: { sheet = .edit(id) })
                 }
             }
@@ -191,6 +199,6 @@ struct ConnectorToolsView: View {
     }
     private func permissionToggle(_ name: String) -> some View {
         Toggle("Allow \(String(name.dropFirst(id.count + 1)))", isOn: Binding(get: { model.allowedTools.contains(name) }, set: { model.act(["action":"grant", "tool":name, "allow":$0]) }))
-            .labelsHidden().toggleStyle(.switch).controlSize(.small).disabled(model.busy)
+            .accessibilityIdentifier("tool.allow.\(String(name.dropFirst(id.count + 1)))").labelsHidden().toggleStyle(.switch).controlSize(.small).disabled(model.busy)
     }
 }

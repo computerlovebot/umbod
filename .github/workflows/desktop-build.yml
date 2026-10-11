@@ -113,6 +113,7 @@ jobs:
           path: |
             acceptance.log
             artifact-sha256.txt
+            ui-evidence/
           if-no-files-found: error
   windows:
     runs-on: windows-latest
