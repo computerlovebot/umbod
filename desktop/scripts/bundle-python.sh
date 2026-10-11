@@ -12,8 +12,10 @@ printf '%s  %s\n' '1a98bbe7e63547d2f764bc9119f6d604dfb333f21afab5f4885dc362b4f3a
 tar -xzf "$ARCHIVE" -C "$DEST"
 printf '20260310\n' > "$DEST/python/BUILD"
 uv export --quiet --project "$ROOT/desktop/python" --frozen --no-dev --no-editable --no-hashes --output-file "$DEST/requirements.txt"
-(cd "$ROOT/desktop/python" && uv pip install --python "$DEST/python/bin/python3" --reinstall-package umbod-desktop --reinstall-package umbod-core --reinstall-package umbod --break-system-packages --requirements "$DEST/requirements.txt")
+# Export covers the full lock; development tool.uv.sources must not restore editable installs.
+(cd "$ROOT/desktop/python" && uv pip install --python "$DEST/python/bin/python3" --reinstall-package umbod-desktop --reinstall-package umbod-core --reinstall-package umbod --break-system-packages --no-editable --no-sources --requirements "$DEST/requirements.txt")
 rm "$DEST/requirements.txt"
+"$DEST/python/bin/python3" -I -B "$ROOT/desktop/scripts/verify-python-bundle.py"
 "$DEST/python/bin/python3" -I -B "$ROOT/desktop/scripts/dependency-notices.py" python "$DEST"
 # Compile before signing; runtime must not mutate the signed bundle.
 "$DEST/python/bin/python3" -m compileall -q -s "$DEST/python" -p /umbod-runtime "$DEST/python/lib"

@@ -21,6 +21,7 @@ def main():
         finally:
             subprocess.run(["hdiutil", "detach", str(mount)], check=True)
         subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
+        subprocess.run([str(app / "Contents/Resources/python/bin/python3"), "-I", "-B", str(desktop / "scripts/verify-python-bundle.py")], check=True)
         environment = {**os.environ, "UMBOD_TEST_APP": str(app)}
         # Swift drives the tests; every backend and agent process uses the installed interpreter.
         subprocess.run(["swift", "run", "--package-path", str(desktop / "native"), "UmbodTests"], env=environment, check=True)

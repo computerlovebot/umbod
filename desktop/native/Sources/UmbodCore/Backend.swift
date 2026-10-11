@@ -88,7 +88,7 @@ import Darwin
         guard let ready = startupResult,
               let management = ready["management"] as? String, let gateway = ready["gateway"] as? String,
               Self.isLoopbackAddress(management), Self.isLoopbackAddress(gateway) else {
-            if child.isRunning { child.terminate() }; stop(); throw ContractError.message("Gateway could not start. Check Keychain access and configuration, then retry.")
+            if child.isRunning { child.terminate() }; stop(); throw ContractError.message("The bundled backend could not start. Restart it in Settings; if this continues, reinstall the latest Umbod release.")
         }
         guard let startupToken = ready["admin_token"] as? String else { throw ContractError.message("Missing backend authentication") }
         token = startupToken
