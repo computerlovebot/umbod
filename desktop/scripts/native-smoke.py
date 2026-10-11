@@ -18,17 +18,22 @@ def default_app():
 
 
 def main():
+    release_identity = '--release-identity' in sys.argv
+    if release_identity and (os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'):
+        raise SystemExit('Unchanged release identity tests require a disposable GitHub-hosted runner')
     source = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else default_app()).resolve()
     with tempfile.TemporaryDirectory(prefix='umbod-test-native-smoke-') as temp:
         root = pathlib.Path(temp).resolve()
-        # An isolated bundle ID avoids sharing SwiftUI window restoration with a user's app.
         app = root / 'Umbod Smoke.app'
         subprocess.run(['/usr/bin/ditto', str(source), str(app)], check=True)
-        plist = app / 'Contents/Info.plist'
-        metadata = plistlib.loads(plist.read_bytes())
-        metadata['CFBundleIdentifier'] += '.fixture.' + uuid.uuid4().hex
-        plist.write_bytes(plistlib.dumps(metadata))
-        subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', str(app)], check=True, stderr=subprocess.DEVNULL)
+        if not release_identity:
+            # Local smoke tests must not share a user's window restoration identity.
+            plist = app / 'Contents/Info.plist'
+            metadata = plistlib.loads(plist.read_bytes())
+            metadata['CFBundleIdentifier'] += '.fixture.' + uuid.uuid4().hex
+            plist.write_bytes(plistlib.dumps(metadata))
+            subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', str(app)], check=True, stderr=subprocess.DEVNULL)
+        subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
         report = root / 'window.json'
         directory = root / 'umbod-test-data'
         environment = os.environ.copy()
@@ -66,6 +71,10 @@ def main():
             raise AssertionError('Bundled backend survived normal app termination')
         except ProcessLookupError:
             pass
+        subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+        if release_identity:
+            assert state['bundleIdentifier'] == 'app.umbod.desktop'
+            print('PASS: unchanged release identity launched through LaunchServices')
         print('PASS: isolated bundled SwiftUI window, authenticated backend, close/reopen and normal termination; no Keychain access')
 
 

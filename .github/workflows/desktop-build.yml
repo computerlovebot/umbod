@@ -39,7 +39,7 @@ jobs:
         working-directory: website
         run: bun run build
   macos:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     defaults:
       run:
@@ -68,10 +68,51 @@ jobs:
         run: |
           version="$(python3 scripts/release.py version)"
           python3 scripts/keychain-smoke.py "dist/Umbod-$version.app"
+      - name: Prepare standalone acceptance harness
+        run: |
+          bash scripts/prepare-macos-acceptance.sh "$RUNNER_TEMP/macos-acceptance-kit"
+          tar -czf "$RUNNER_TEMP/macos-acceptance-kit.tar.gz" -C "$RUNNER_TEMP/macos-acceptance-kit" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-acceptance-kit
+          path: ${{ runner.temp }}/macos-acceptance-kit.tar.gz
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-macos-arm64
           path: desktop/dist/Umbod-*-arm64.dmg
+          if-no-files-found: error
+  macos-acceptance:
+    needs: macos
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      # Deliberately no checkout or development-tool installation.
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-macos-arm64
+          path: candidate
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-acceptance-kit
+          path: kit
+      - name: Accept the exact release DMG without a source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          mkdir harness
+          tar -xzf kit/macos-acceptance-kit.tar.gz -C harness
+          shasum -a 256 candidate/*.dmg > artifact-sha256.txt
+          env -i HOME="$HOME" TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" PATH=/usr/bin:/bin:/usr/sbin:/sbin GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            /bin/bash harness/scripts/accept-macos-artifact.sh "$PWD"/candidate/*.dmg 2>&1 | tee acceptance.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-acceptance-evidence
+          path: |
+            acceptance.log
+            artifact-sha256.txt
           if-no-files-found: error
   windows:
     runs-on: windows-latest

@@ -99,7 +99,7 @@ All Download CTAs navigate to `/download/`. That page uses
 `public/desktop-downloads.json`, independently of root release metadata. The home
 and enterprise pages never initialize desktop downloads. Only macOS Apple Silicon
 is offered publicly; Windows, Linux and Intel Mac rows say Coming soon even when
-the release manifest contains Windows build artifacts. The initial Mac state is Release pending, with Enterprise
+the release manifest contains Windows build artifacts. Windows promotion is paused without changing the manifest schema or removing archived build artifacts. When no Mac release is available, its state is Release pending, with Enterprise
 linked as the separate edition for teams;
 do not add speculative URLs. `src/downloads.mjs` validates exact desktop tags, public
 asset URLs, hashes and platform choices. Vite renders a no-JavaScript fallback from the

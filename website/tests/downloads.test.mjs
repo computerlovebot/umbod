@@ -29,9 +29,9 @@ test('platform hints never guess Apple Silicon from MacIntel or select mobile AR
 });
 
 test('download selection preserves manual choices and truthful unavailability', () => {
-  assert.equal(selectDownload(fixture(), 'windows-x64').recommended, 'windows-x64');
+  assert.equal(selectDownload(fixture(), 'windows-x64').recommended, null);
   assert.equal(selectDownload(fixture(), 'macos-unknown').recommended, null);
-  assert.equal(selectDownload(fixture(), 'unsupported').downloads.length, 2);
+  assert.equal(selectDownload(fixture(), 'unsupported').downloads.length, 1);
   assert.equal(selectDownload({schemaVersion: 1, status: 'unavailable'}, 'macos-arm64').downloads.length, 0);
   assert.equal(selectDownload(null, 'windows-x64').downloads.length, 0);
 });
@@ -41,11 +41,13 @@ test('fetch fails closed for HTTP, network, malformed and redirected responses',
   assert.equal((await loadManifest(async (url, options) => { assert.equal(url, '/desktop-downloads.json'); assert.equal(options.credentials, 'omit'); return {ok: true, json: async () => fixture()}; })).tag, 'desktop-v0.2.0');
 });
 
-test('verified Mac and Windows downloads are available; unsupported platforms remain coming soon', () => {
+test('only Mac downloads are offered while Windows is paused', () => {
   const html = renderDownloads(fixture(), 'windows-x64');
   for (const text of ['Windows', 'Linux', 'macOS Intel', 'Apple Silicon', '0.2.0', 'Unsigned prerelease', 'SHA-256', 'b'.repeat(64), 'Coming soon']) assert.ok(html.includes(text), text);
   assert.ok(html.includes(fixture().assets['macos-arm64'].url));
-  assert.ok(html.includes(fixture().assets['windows-x64'].url));
+  assert.ok(!html.includes(fixture().assets['windows-x64'].url));
+  assert.ok(!html.includes('Download ZIP'));
+  assert.ok(!html.includes('Verify Windows download'));
   assert.ok(!html.includes('Recommended'));
   assert.ok(renderDownloads(null, 'unknown').includes('could not be verified'));
   const absent = renderDownloads({schemaVersion: 1, status: 'unavailable'}, 'unknown');
