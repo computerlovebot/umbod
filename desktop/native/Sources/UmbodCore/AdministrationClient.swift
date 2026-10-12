@@ -133,7 +133,6 @@ import Foundation
                 } catch {
                     // The local proxy already holds the saved connection. Keep its
                     // identity and permissions while guided setup repairs sign-in.
-                    let state = try await send("GET", "/desktop/state")
                     let oauthState = try await send("GET", "/api/admin/connectors/mcp/oauth/status")
                     let authentication = oauthState["oauth_status"] as? [String: String] ?? [:]
                     guard authentication[hostID] == "sign_in_required" else { throw error }
