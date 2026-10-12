@@ -1,3 +1,5 @@
+from umbod.core.connectors.downstream_mcp.oauth.service import OAuthService
+from umbod.rest.connectors.downstream_mcp.oauth import get_oauth_service, router as oauth_router
 from umbod.infrastructure import ConfiguredPersistenceRuntimeProvider
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -60,12 +62,13 @@ class _CreateAppArguments:
     settings: APISettings | None
     connector_registrations: Sequence[ConnectorRegistration] | None
     admin_verifier: JwtVerifier | None
+    oauth_service: OAuthService | None
 
 
 def _resolve_create_app_arguments(*args: Any, **kwargs: Any) -> _CreateAppArguments:
     if len(args) > 2:
         raise TypeError("create_app() takes from 0 to 2 positional arguments")
-    unknown_keywords = set(kwargs) - {"settings", "connector_registrations", "admin_verifier"}
+    unknown_keywords = set(kwargs) - {"settings", "connector_registrations", "admin_verifier", "oauth_service"}
     if unknown_keywords:
         unknown_keyword = next(iter(unknown_keywords))
         raise TypeError(
@@ -85,6 +88,7 @@ def _resolve_create_app_arguments(*args: Any, **kwargs: Any) -> _CreateAppArgume
     return _CreateAppArguments(
         settings=settings, connector_registrations=connector_registrations,
         admin_verifier=cast(JwtVerifier | None, kwargs.get("admin_verifier")),
+        oauth_service=cast(OAuthService | None, kwargs.get("oauth_service")),
     )
 
 
@@ -124,6 +128,7 @@ def _mount_admin_app(
     metrics_recorder: RestMetricsRecorder,
     app_config: AppConfig,
     verifier_factory: JwtVerifierFactory,
+    oauth_service: OAuthService | None,
 ) -> None:
     admin_router = APIRouter()
     admin_router.include_router(create_current_user_router())
@@ -131,9 +136,15 @@ def _mount_admin_app(
     admin_router.include_router(capability_description_router)
     admin_router.include_router(mcp_permission_router)
     admin_router.include_router(openapi_connector_router)
+    admin_router.include_router(oauth_router)
     admin_router.include_router(downstream_mcp_connector_router)
     admin_router.include_router(instance_configuration_router)
     admin_app = SubApiAppFactory(title="umbod-admin-api", router=admin_router).create()
+    if oauth_service is not None:
+        def provide_oauth_service() -> OAuthService:
+            return oauth_service
+
+        admin_app.dependency_overrides[get_oauth_service] = provide_oauth_service
     admin_routes = tuple(admin_router.routes)
 
     def provide_app_config() -> AppConfig:
@@ -245,7 +256,8 @@ def create_app(*args: Any, **kwargs: Any) -> FastAPI:
         if create_app_arguments.admin_verifier is not None else JwtVerifierFactory()
     )
     _mount_admin_app(
-        app, app_settings, dependency_factories, metrics_recorder, app_settings, verifier_factory
+        app, app_settings, dependency_factories, metrics_recorder, app_settings, verifier_factory,
+        create_app_arguments.oauth_service,
     )
     _mount_system_app(app, dependency_factories)
     install_telemetry_receiver(app, app_settings)

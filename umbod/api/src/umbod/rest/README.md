@@ -46,11 +46,11 @@ Kind packages isolate kind-specific routes, schemas, and dependencies:
 Setup is compensated, not transactional: failures after creation attempt both credential clearing and connector deletion. Invalid setup returns 422 with `detail.code=openapi_setup_invalid_request`; operation failure after successful cleanup returns 500 with `detail.code=openapi_setup_failed`. Cleanup failure returns 500 with `detail.code=openapi_setup_cleanup_failed` and `detail.connector_id`, so operators can reconcile residual connector or credential state. Error bodies never reflect submitted documents or bearer secrets. Existing create/import/configuration APIs remain supported. Both SPA and native clients should use setup rather than coordinating creation and cleanup themselves. The core implementation is `core/connectors/openapi/management/setup.py`; its request and public ports are in `setup_ports.py`.
 - `connectors/downstream_mcp/` — Downstream MCP administration (`/connectors/mcp`)
 
-Downstream MCP responses also describe saved `oauth` authorizations. Interactive
-sign-in is currently a Local-only host extension (`umbod/oauth.py`), not an
-Enterprise admin route. Shared runtime/storage support lives in
-`core/connectors/downstream_mcp/adapters/oauth.py`; Enterprise account ownership
-and multi-worker sign-in coordination remain undecided.
+Downstream MCP responses also describe saved `oauth` authorizations. Shared OAuth administration lives in `connectors/downstream_mcp/oauth.py` under `/api/admin/connectors/mcp/oauth`: `GET /status`, `GET /{connector_id}`, and `POST /{connector_id}/{discover,begin,cancel,refresh,logout}`. Begin accepts optional `client_id` and `scopes`; omitted scopes preserve the saved choice. Details expose saved authorization, granted/requested/available scopes, registration mode, bounded redacted diagnostics, and separate authorization/discovery outcomes. Admin authentication and cookie safeguards apply to every route.
+
+Deployment composition supplies `create_app(oauth_service=OAuthService(host))`. The host implements shared storage, connector lookup, callback addresses, and transport reconnection ports; it does not implement OAuth policy. Desktop supplies Keychain and loopback adapters, including lookup of local drafts. The composing host must close the service during shutdown. Existing callback paths remain stable for registered clients.
+
+Without a configured host, these routes return `503` with `detail.code=oauth_host_unavailable`. This change does not enable browser sign-in in multi-worker Enterprise deployments: credential ownership and callback/session coordination must be supplied explicitly before enabling it. Saved server authorizations continue to use shared runtime/storage support in `core/connectors/downstream_mcp/adapters/fastmcp/oauth.py`, with the same public-client policy as Desktop.
 
 ### `mcp_permissions/`
 

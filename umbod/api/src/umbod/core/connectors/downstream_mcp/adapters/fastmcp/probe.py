@@ -1,3 +1,4 @@
+from umbod.core.connectors.downstream_mcp.oauth.provider import OAuthFailure
 import asyncio
 from typing import Iterator
 from urllib.parse import SplitResult, urljoin, urlsplit
@@ -142,7 +143,7 @@ class FastMCPDownstreamConnection:
                 return ProbeFailed(code="auth_rejected")
             return ProbeFailed(code="invalid_mcp_protocol")
         for current in self._exception_chain(error):
-            if isinstance(current, SignInRequired):
+            if isinstance(current, (SignInRequired, OAuthFailure)):
                 return ProbeFailed(code="auth_rejected")
             if isinstance(current, DownstreamConnectorValidationError):
                 return ProbeFailed(code=current.code)

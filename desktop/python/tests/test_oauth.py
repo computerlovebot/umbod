@@ -12,29 +12,39 @@ from umbod.core.connectors.downstream_mcp.adapters.fastmcp.oauth import (
     ConnectorOAuth,
     SignInRequired,
 )
+from umbod.core.connectors.downstream_mcp.oauth.provider import (
+    CLIENT_METADATA_URL,
+    InteractiveConnectorOAuth,
+    OAuthFailure,
+    RuntimeOAuth,
+)
+from umbod.core.connectors.downstream_mcp.oauth.service import OAuthService
 
-from umbod_desktop.oauth import DesktopOAuth, KeychainOAuthStorage
+from umbod_desktop.oauth import (
+    DesktopOAuthHost,
+    KeychainOAuthStorage,
+    callback_transport,
+)
+
+
+def desktop_oauth(upstreams):
+    return OAuthService(DesktopOAuthHost(upstreams))
 
 
 async def test_fresh_authorization_keeps_saved_tokens_and_hosted_identity():
-    from umbod_desktop.oauth import (
-        CLIENT_METADATA_URL,
-        DesktopConnectorOAuth,
-        RuntimeOAuth,
-    )
 
     vault = MemoryVault()
     storage = KeychainOAuthStorage(vault, "fixture", "https://tools.example/mcp")
     storage.document.client_info = OAuthClientInformationFull(client_id=CLIENT_METADATA_URL)
     storage.document.tokens = OAuthToken(access_token="existing", token_type="Bearer", scope="read write")
     await storage.save()
-    auth = DesktopConnectorOAuth(storage, requested_scope="read", force_authorization=True)
+    auth = InteractiveConnectorOAuth(storage, requested_scope="read", force_authorization=True)
     await auth._initialize()
     assert auth.context.current_tokens is None
     assert auth.context.client_metadata_url == CLIENT_METADATA_URL
     await storage.load()
     assert storage.document.tokens.access_token == "existing"
-    runtime = RuntimeOAuth(storage, SimpleNamespace(), "fixture")
+    runtime = RuntimeOAuth(storage, lambda: None)
     await runtime._initialize()
     assert runtime.context.current_tokens.access_token == "existing"
     assert runtime.context.client_metadata_url == CLIENT_METADATA_URL
@@ -52,7 +62,6 @@ async def test_explicit_scopes_limit_browser_request_after_discovery():
     from mcp.client.auth import AuthorizationCodeResult
 
     from umbod_desktop.models import DesktopServer
-    from umbod_desktop.oauth import DesktopConnectorOAuth
 
     query = {}
 
@@ -62,7 +71,7 @@ async def test_explicit_scopes_limit_browser_request_after_discovery():
     async def callback():
         return AuthorizationCodeResult(code="fixture", state=query["state"][0])
 
-    auth = DesktopConnectorOAuth(
+    auth = InteractiveConnectorOAuth(
         KeychainOAuthStorage(MemoryVault(), "scope", "https://tools.example/mcp"),
         requested_scope="channels:read search:read.public",
         redirect_handler=redirect, callback_handler=callback,
@@ -80,7 +89,7 @@ async def test_explicit_scopes_limit_browser_request_after_discovery():
 
 
 async def test_retry_reuses_registered_callback_and_migrates_old_uri(monkeypatch):
-    from umbod_desktop import oauth as module
+    from umbod.core.connectors.downstream_mcp.oauth import service as module
 
     vault = MemoryVault()
     storage = KeychainOAuthStorage(vault, "fixture", "https://tools.example/mcp")
@@ -123,17 +132,16 @@ async def test_retry_reuses_registered_callback_and_migrates_old_uri(monkeypatch
             "transport": "http", "url": "https://tools.example/mcp"
         }}}, save=lambda: None),
     )
-    monkeypatch.setattr(module, "StreamableHttpTransport", lambda url, auth: auth)
-    monkeypatch.setattr(module, "Client", Client)
-    oauth = DesktopOAuth(upstreams)
+    monkeypatch.setattr(module, "oauth_client", lambda url, auth: Client(auth))
+    oauth = desktop_oauth(upstreams)
     for _ in range(2):
-        await oauth.begin("fixture")
+        await oauth.begin("fixture", "", None)
         oauth.callbacks["fixture"].set_result(None)
         await oauth.tasks["fixture"]
         assert oauth.results["fixture"] == "signed_in"
     assert redirects == ["http://127.0.0.1:8000/desktop/oauth/callback/fixture"] * 2
     assert registrations == redirects[:1]
-    await oauth.begin("fixture")
+    await oauth.begin("fixture", "", None)
     await oauth.cancel("fixture")
     assert oauth.results["fixture"] == "cancelled"
     assert not oauth.callbacks
@@ -149,7 +157,7 @@ def test_failure_messages_do_not_expose_provider_secrets():
     from mcp.client.auth.exceptions import OAuthTokenError
 
     error = ExceptionGroup("secret", [OAuthTokenError("access_token=secret")])
-    message = DesktopOAuth.failure_message(error)
+    message = OAuthService.failure_message(error)
     assert "token exchange" in message
     assert "secret" not in message
 
@@ -157,52 +165,49 @@ def test_failure_messages_do_not_expose_provider_secrets():
 async def test_refresh_failure_is_actionable_and_redacted(monkeypatch):
     from mcp.client.auth.exceptions import OAuthTokenError
 
-    from umbod_desktop.oauth import DesktopOAuthFailure
 
-    oauth = DesktopOAuth(SimpleNamespace())
+    oauth = desktop_oauth(SimpleNamespace())
 
     async def fail(_):
         raise ExceptionGroup("secret", [OAuthTokenError("refresh_token=secret")])
 
     monkeypatch.setattr(oauth, "_refresh", fail)
-    with pytest.raises(DesktopOAuthFailure, match="Sign in with browser") as failure:
+    with pytest.raises(OAuthFailure, match="Sign in with browser") as failure:
         await oauth.refresh("fixture")
     assert "secret" not in str(failure.value)
     assert oauth.events["fixture"][-1]["result"] == "failed"
 
 
 async def test_missing_refresh_token_is_reported_without_expiring_access():
-    from umbod_desktop.oauth import DesktopOAuthFailure
 
     vault = MemoryVault()
     storage = KeychainOAuthStorage(vault, "fixture", "https://tools.example/mcp")
     storage.document.tokens = OAuthToken(access_token="fixture-secret", token_type="Bearer")
     storage.document.expires_at = time.time() + 3600
     await storage.save()
-    oauth = DesktopOAuth(SimpleNamespace(vault=vault, origin="http://127.0.0.1:8000", state=SimpleNamespace(data={
+    oauth = desktop_oauth(SimpleNamespace(vault=vault, origin="http://127.0.0.1:8000", state=SimpleNamespace(data={
         "servers": {"fixture": {"url": "https://tools.example/mcp"}},
     })))
     details = await oauth.details("fixture")
     assert details["has_authorization"]
     assert not details["has_refresh_token"]
     assert "fixture-secret" not in str(details)
-    with pytest.raises(DesktopOAuthFailure, match="did not issue a refresh token"):
+    with pytest.raises(OAuthFailure, match="did not issue a refresh token"):
         await oauth.refresh("fixture")
     await storage.load()
     assert storage.document.expires_at > time.time()
 
 
 async def test_rejected_refresh_does_not_expire_a_valid_saved_token():
-    from umbod_desktop.oauth import DesktopConnectorOAuth, DesktopOAuthFailure
 
     storage = KeychainOAuthStorage(MemoryVault(), "fixture", "https://tools.example/mcp")
     storage.document.tokens = OAuthToken(access_token="fixture-secret", token_type="Bearer", refresh_token="fixture-refresh")
     storage.document.expires_at = time.time() + 3600
     await storage.save()
-    auth = DesktopConnectorOAuth(storage, force_refresh=True)
+    auth = InteractiveConnectorOAuth(storage, force_refresh=True)
     await auth._initialize()
     assert auth.context.token_expiry_time < time.time()
-    with pytest.raises(DesktopOAuthFailure, match="refresh token expired") as failure:
+    with pytest.raises(OAuthFailure, match="refresh token expired") as failure:
         await auth._handle_refresh_response(httpx2.Response(400, json={"error": "invalid_grant", "error_description": "secret"}))
     assert "secret" not in str(failure.value)
     await storage.load()
@@ -212,10 +217,9 @@ async def test_rejected_refresh_does_not_expire_a_valid_saved_token():
 async def test_exact_issuer_survives_discovery_and_keychain_round_trip():
     from mcp.client.auth.utils import validate_authorization_response_iss
 
-    from umbod_desktop.oauth import DesktopConnectorOAuth
 
     storage = KeychainOAuthStorage(MemoryVault(), "issuer", "https://tools.example/mcp")
-    auth = DesktopConnectorOAuth(storage)
+    auth = InteractiveConnectorOAuth(storage)
     assert auth.context.client_metadata.token_endpoint_auth_method == "none"
     await auth._handle_oauth_metadata_response(httpx2.Response(200, json={
         "issuer": "https://tools.example",
@@ -233,12 +237,11 @@ async def test_exact_issuer_survives_discovery_and_keychain_round_trip():
 
 @pytest.mark.parametrize("provider_error", ["invalid_client", {"token": "secret"}])
 async def test_token_failure_exposes_only_safe_category(provider_error):
-    from umbod_desktop.oauth import DesktopConnectorOAuth, DesktopOAuthFailure
 
-    auth = DesktopConnectorOAuth(
+    auth = InteractiveConnectorOAuth(
         KeychainOAuthStorage(MemoryVault(), "failure", "https://tools.example/mcp")
     )
-    with pytest.raises(DesktopOAuthFailure) as caught:
+    with pytest.raises(OAuthFailure) as caught:
         await auth._handle_token_response(httpx2.Response(400, json={
             "error": provider_error, "error_description": "access_token=secret",
         }))
@@ -302,7 +305,7 @@ async def test_keychain_refresh_is_serialized_persistent_and_cannot_resurrect_lo
 
 
 async def test_wrong_callback_state_does_not_consume_pending_sign_in():
-    oauth = DesktopOAuth(SimpleNamespace())
+    oauth = desktop_oauth(SimpleNamespace())
     future = asyncio.get_running_loop().create_future()
     oauth.callbacks["nonce"] = future
     oauth.expected_states["nonce"] = "expected"
@@ -319,15 +322,15 @@ async def test_wrong_callback_state_does_not_consume_pending_sign_in():
             }
         )
 
-    assert (await oauth.callback(request("wrong"))).status_code == 400
+    assert (await callback_transport(oauth)(request("wrong"))).status_code == 400
     assert not future.done()
-    assert (await oauth.callback(request("expected"))).status_code == 200
+    assert (await callback_transport(oauth)(request("expected"))).status_code == 200
     assert future.result().code == "fixture"
-    assert (await oauth.callback(request("expected"))).status_code == 400
+    assert (await callback_transport(oauth)(request("expected"))).status_code == 400
 
 
 async def test_declined_browser_consent_finishes_pending_callback():
-    oauth = DesktopOAuth(SimpleNamespace())
+    oauth = desktop_oauth(SimpleNamespace())
     future = asyncio.get_running_loop().create_future()
     oauth.callbacks["nonce"] = future
     oauth.expected_states["nonce"] = "expected"
@@ -341,13 +344,14 @@ async def test_declined_browser_consent_finishes_pending_callback():
             "headers": [],
         }
     )
-    assert (await oauth.callback(request)).status_code == 200
+    assert (await callback_transport(oauth)(request)).status_code == 200
     with pytest.raises(ValueError, match="declined"):
         await future
 
 
 async def test_runtime_reauthentication_is_reported_and_persisted(tmp_path):
-    from umbod_desktop.oauth import RuntimeOAuth
+    from umbod.core.connectors.downstream_mcp.oauth.provider import RuntimeOAuth
+
     from umbod_desktop.storage import DesktopState
     from umbod_desktop.upstreams import DesktopUpstreams
 
@@ -369,13 +373,13 @@ async def test_runtime_reauthentication_is_reported_and_persisted(tmp_path):
     async def handle(request):
         return httpx2.Response(404 if ".well-known" in str(request.url) else 401)
 
-    auth = RuntimeOAuth(storage, upstreams, "fixture")
+    auth = RuntimeOAuth(storage, lambda: upstreams.set_authentication_status("fixture", "sign_in_required"))
     async with httpx2.AsyncClient(
         transport=httpx2.MockTransport(handle), auth=auth
     ) as client:
         with pytest.raises(SignInRequired):
             await client.post("https://tools.example/mcp")
-    assert DesktopOAuth(upstreams).results["fixture"] == "sign_in_required"
+    assert desktop_oauth(upstreams).results["fixture"] == "sign_in_required"
     restored = DesktopUpstreams(
         DesktopState(tmp_path), vault, "fixture", "http://127.0.0.1:8000"
     )
@@ -460,7 +464,7 @@ async def test_http_challenge_and_success_update_connection_status(tmp_path):
 
 
 async def test_shared_callback_routes_only_matching_state():
-    oauth = DesktopOAuth(SimpleNamespace())
+    oauth = desktop_oauth(SimpleNamespace())
     first = asyncio.get_running_loop().create_future()
     second = asyncio.get_running_loop().create_future()
     oauth.callbacks.update(first=first, second=second)
@@ -469,7 +473,7 @@ async def test_shared_callback_routes_only_matching_state():
         "type": "http", "method": "GET", "path": "/desktop/oauth/callback",
         "path_params": {}, "query_string": b"code=fixture&state=state-two", "headers": [],
     })
-    assert (await oauth.callback(request)).status_code == 200
+    assert (await callback_transport(oauth)(request)).status_code == 200
     assert not first.done()
     assert second.result().code == "fixture"
-    assert (await oauth.callback(request)).status_code == 400
+    assert (await callback_transport(oauth)(request)).status_code == 400
