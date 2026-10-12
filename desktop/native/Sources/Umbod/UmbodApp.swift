@@ -70,7 +70,12 @@ import UmbodCore
     func act(_ body: [String: Any], success: String = "") {
         Task { busy = true; error = ""; activity = body["action"] as? String == "connect" ? "Connecting and discovering tools…" : "Updating connector…"; defer { busy = false; activity = "" }
             do { _ = try await backend.request(body); try await refresh(); notice = success }
-            catch { self.error = error.localizedDescription; try? await refresh() }
+            catch {
+                try? await refresh()
+                if let id = body["id"] as? String, (body["action"] as? String)?.hasPrefix("oauth_") == true {
+                    oauthErrors[id] = error.localizedDescription
+                } else { self.error = error.localizedDescription }
+            }
         }
     }
     func copy(_ text: String, message: String = "Copied to clipboard") {
@@ -114,7 +119,7 @@ import UmbodCore
                 _ = try? await backend.request(["action": "oauth_cancel", "id": id])
                 throw ContractError.message("Sign-in timed out. Start a new attempt in Connection settings.")
             } catch is CancellationError { }
-              catch { self.error = error.localizedDescription; try? await refresh() }
+              catch { try? await refresh(); oauthErrors[id] = error.localizedDescription }
         }
     }
     func cancelSignIn(_ id: String) {

@@ -152,6 +152,9 @@ struct ConnectorManagementView: View {
             HStack { Text(server["name"] as? String ?? "Connection settings").font(.title2.bold()); Spacer(); Button("Done") { dismiss() } }.padding(28)
             ScrollView { VStack(alignment: .leading, spacing: 20) {
             StatusMessages()
+            if let issue = model.oauthErrors[id], !issue.isEmpty {
+                Text(issue).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+            }
             if model.busy {
                 HStack { ProgressView().controlSize(.small); Text(model.activity) }
             }
@@ -233,9 +236,12 @@ struct ConnectorManagementView: View {
                     }
                     HStack {
                         Button("Sign in with browser") { model.signIn(id, clientID: clientID, scopes: scopes) }.disabled(checkingSignIn || (!availableScopes.isEmpty && scopes.isEmpty) || authDetails["endpoint_differs"] as? Bool == true)
-                        Button("Refresh token") { model.act(["action":"oauth_refresh", "id":id], success: "Token refreshed and transport reconnected.") }
+                        Button("Refresh token") { model.act(["action":"oauth_refresh", "id":id], success: "Token refreshed and transport reconnected.") }.disabled(authDetails["has_refresh_token"] as? Bool != true)
                         Button("Sign out") { model.act(["action":"oauth_logout", "id":id]) }
                     }.disabled(model.busy || model.signInActivities[id] != nil)
+                    if authDetails["has_authorization"] as? Bool == true && authDetails["has_refresh_token"] as? Bool == false {
+                        Text("The provider did not issue a refresh token. Use browser sign-in when access expires.").font(.caption).foregroundStyle(Brand.muted)
+                    }
                     DisclosureGroup("Connection diagnostics") {
                         Text("Contains setup stages and timestamps only; no tokens, messages, or tool results.").font(.caption)
                         Button("Copy diagnostics") { model.copy((try? JSONText.encode(authDetails["diagnostics"] ?? [])) ?? "[]") }
@@ -246,7 +252,7 @@ struct ConnectorManagementView: View {
         }.padding(.horizontal, 28).padding(.bottom, 28) } }.frame(width: 680).frame(maxHeight: 740).modifier(BrandAppearance())
         .task {
             model.notice = ""
-            model.error = model.oauthErrors[id] ?? ""
+            model.error = ""
             scopes = server["oauth_scopes"] as? String ?? ""
             if server["transport"] as? String == "http" {
                 authDetails = (try? await model.backend.request(["action": "oauth_details", "id": id])) ?? [:]
@@ -378,7 +384,7 @@ struct ConnectorToolsView: View {
                 }
             }
         }
-        .task(id: id) { model.notice = ""; model.error = model.oauthErrors[id] ?? "" }
+        .task(id: id) { model.notice = ""; model.error = "" }
         .sheet(isPresented: Binding(get: { bulkAllow != nil }, set: { if !$0 { bulkAllow = nil } })) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("\(bulkAllow == true ? "Enable" : "Disable") \(bulkNames.count) tools?").font(.title2.bold())

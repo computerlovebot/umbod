@@ -259,6 +259,7 @@ class DesktopOAuth:
         return {
             "callback_url": f"{self.upstreams.origin}/desktop/oauth/callback" + ("" if document.client_info and document.client_info.client_id == CLIENT_METADATA_URL else f"/{key}"),
             "has_authorization": document.tokens is not None,
+            "has_refresh_token": bool(document.tokens and document.tokens.refresh_token),
             "granted_scopes": document.tokens.scope if document.tokens else None,
             "requested_scopes": server.get("oauth_scopes", ""),
             "available_scopes": metadata.scopes_supported or [] if metadata else [],
@@ -285,6 +286,8 @@ class DesktopOAuth:
         # categories, including errors wrapped by transport task groups.
         if isinstance(exc, DesktopOAuthFailure):
             return str(exc)
+        if isinstance(exc, SignInRequired):
+            return "The saved authorization could not be renewed. Sign in with browser again."
         if isinstance(exc, BaseExceptionGroup):
             return DesktopOAuth.failure_message(exc.exceptions[0])
         if exc.__cause__ is not None:
@@ -357,7 +360,7 @@ class DesktopOAuth:
         storage = KeychainOAuthStorage(self.upstreams.vault, key, server["url"])
         await storage.load()
         if storage.document.tokens is None or not storage.document.tokens.refresh_token:
-            raise ValueError("Sign in again to renew this credential")
+            raise DesktopOAuthFailure("This provider did not issue a refresh token. Sign in with browser to renew access.")
         storage.document.expires_at = time.time() - 1
         await storage.save()
         async with Client(

@@ -171,6 +171,27 @@ async def test_refresh_failure_is_actionable_and_redacted(monkeypatch):
     assert oauth.events["fixture"][-1]["result"] == "failed"
 
 
+async def test_missing_refresh_token_is_reported_without_expiring_access():
+    from umbod_desktop.oauth import DesktopOAuthFailure
+
+    vault = MemoryVault()
+    storage = KeychainOAuthStorage(vault, "fixture", "https://tools.example/mcp")
+    storage.document.tokens = OAuthToken(access_token="fixture-secret", token_type="Bearer")
+    storage.document.expires_at = time.time() + 3600
+    await storage.save()
+    oauth = DesktopOAuth(SimpleNamespace(vault=vault, origin="http://127.0.0.1:8000", state=SimpleNamespace(data={
+        "servers": {"fixture": {"url": "https://tools.example/mcp"}},
+    })))
+    details = await oauth.details("fixture")
+    assert details["has_authorization"]
+    assert not details["has_refresh_token"]
+    assert "fixture-secret" not in str(details)
+    with pytest.raises(DesktopOAuthFailure, match="did not issue a refresh token"):
+        await oauth.refresh("fixture")
+    await storage.load()
+    assert storage.document.expires_at > time.time()
+
+
 async def test_exact_issuer_survives_discovery_and_keychain_round_trip():
     from mcp.client.auth.utils import validate_authorization_response_iss
 
