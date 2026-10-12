@@ -47,7 +47,7 @@ Load command 3
 
     def test_acceptance_has_no_checkout_or_compilation(self):
         workflow = (SCRIPT.parents[2] / '.github/workflows/desktop-build.yml').read_text()
-        job = workflow.split('  macos-acceptance:\n')[1].split('  windows:\n')[0]
+        job = workflow.split('  macos-acceptance:\n')[1]
         self.assertIn('needs: macos', job)
         self.assertNotIn('actions/checkout', job)
         self.assertNotIn('setup-python', job)

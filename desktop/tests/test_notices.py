@@ -29,18 +29,6 @@ class NoticeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
                     notices.supplement('fixture')
 
-    def test_dotnet_requires_both_license_and_third_party_notices(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / 'Umbod.Windows.deps.json').write_text(json.dumps({'libraries': {'runtimepack.Microsoft.NETCore.App.Runtime.win-x64/8.0.0': {}}}))
-            pack = root / 'packages/microsoft.netcore.app.runtime.win-x64/8.0.0'
-            pack.mkdir(parents=True)
-            (pack / 'LICENSE.txt').write_text('fixture license')
-            with self.assertRaisesRegex(ValueError, 'ThirdPartyNotices'):
-                list(notices.dotnet_entries(root, root / 'packages'))
-            (pack / 'ThirdPartyNotices.txt').write_text('fixture notices')
-            self.assertEqual(len(list(notices.dotnet_entries(root, root / 'packages'))), 1)
-
     def test_notice_names_include_british_spelling_and_exclude_python_modules(self):
         self.assertTrue(notices.is_notice(Path('LICENCE.md')))
         self.assertTrue(notices.is_notice(Path('COPYING')))

@@ -4,9 +4,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 
 DESKTOP = Path(__file__).resolve().parents[1]
@@ -40,41 +38,12 @@ def python_entries():
     yield "CPython and bundled native libraries", f"{version}-{build}", "See retained notices", supplement(f"cpython-{version}-{build}")
 
 
-def rust_entries(cargo):
-    result = subprocess.run([cargo, "metadata", "--locked", "--format-version", "1", "--filter-platform", "x86_64-pc-windows-msvc"], cwd=DESKTOP, capture_output=True, text=True, check=True)
-    for package in sorted(json.loads(result.stdout)["packages"], key=lambda item: item["name"]):
-        if not package["source"]:
-            continue
-        root = Path(package["manifest_path"]).parent
-        files = [(path.relative_to(root).as_posix(), path.read_text(encoding="utf-8")) for path in sorted(root.rglob("*")) if path.is_file() and is_notice(path)]
-        yield package["name"], package["version"], package["license"] or "See retained notices", files or supplement(f'{package["name"]}-{package["version"]}')
-
-
-def dotnet_entries(publish, package_cache):
-    manifest = json.loads((publish / "Umbod.Windows.deps.json").read_text(encoding="utf-8"))
-    versions = sorted(key for key in manifest["libraries"] if key.lower().startswith("runtimepack."))
-    if not versions:
-        raise ValueError("Missing self-contained .NET runtime identities")
-    for identity in versions:
-        name, version = identity.removeprefix("runtimepack.").split("/")
-        root = package_cache / name.lower() / version
-        files = [(path.name, path.read_text(encoding="utf-8")) for path in sorted(root.glob("*")) if path.is_file() and is_notice(path)]
-        if name == "Microsoft.WindowsDesktop.App.Runtime.win-x64":
-            files += supplement(f"dotnet-wpf-{version}") + supplement(f"dotnet-winforms-{version}")
-        if not any("third" in filename.lower() for filename, _ in files) or not any("license" in filename.lower() for filename, _ in files):
-            raise ValueError(f"{identity} must retain LICENSE and ThirdPartyNotices from its exact NuGet runtime pack")
-        yield name, version, "See retained notices", files
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("platform", choices=["python", "windows"])
+    parser.add_argument("platform", choices=["python"])
     parser.add_argument("output", type=Path)
-    parser.add_argument("--cargo", default="cargo")
-    parser.add_argument("--publish", type=Path)
-    parser.add_argument("--nuget-packages", type=Path, default=Path(os.environ.get("NUGET_PACKAGES", str(Path.home() / ".nuget/packages"))))
     args = parser.parse_args()
-    entries = list(python_entries()) if args.platform == "python" else [*rust_entries(args.cargo), *dotnet_entries(args.publish, args.nuget_packages)]
+    entries = list(python_entries())
     notices = ["Umbod Desktop third-party notices\n\nUmbod source license\n" + (DESKTOP.parent / "LICENSE").read_text(encoding="utf-8")]
     inventory = []
     for name, version, license_id, files in entries:

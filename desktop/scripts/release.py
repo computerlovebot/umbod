@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import re
-import tomllib
 
 DESKTOP = Path(__file__).resolve().parents[1]
 REPOSITORY = 'computerlovetech/umbod'
@@ -20,15 +19,7 @@ def check_version(value):
 
 
 def version():
-    value = check_version((DESKTOP / 'VERSION').read_text().strip())
-    cargo = tomllib.loads((DESKTOP / 'Cargo.toml').read_text())
-    locked = tomllib.loads((DESKTOP / 'Cargo.lock').read_text())
-    if cargo.get('package', {}).get('version') != value:
-        raise ValueError('desktop/VERSION and Cargo.toml disagree')
-    gateways = [p for p in locked.get('package', []) if p.get('name') == 'umbod-gateway']
-    if len(gateways) != 1 or gateways[0].get('version') != value:
-        raise ValueError('desktop/VERSION and Cargo.lock disagree')
-    return value
+    return check_version((DESKTOP / 'VERSION').read_text().strip())
 
 
 def guard(*, version, confirmation, mode, rights_confirmed, repository, ref, event, expected_version):
@@ -53,8 +44,7 @@ def metadata(folder, release_version, commit):
         raise ValueError('A full source commit SHA is required')
     tag = f'desktop-v{release_version}'
     base = f'https://github.com/{REPOSITORY}/releases/download/{tag}/'
-    names = {'macos-arm64': f'Umbod-{release_version}-arm64.dmg',
-             'windows-x64': f'Umbod-{release_version}-release-win-x64.zip'}
+    names = {'macos-arm64': f'Umbod-{release_version}-arm64.dmg'}
     outputs = {'desktop-downloads.json', 'SHA256SUMS', 'RELEASE_NOTES.md'}
     for path in folder.iterdir():
         if path.name not in set(names.values()) | outputs:
@@ -75,21 +65,21 @@ def metadata(folder, release_version, commit):
         f'# Umbod Desktop {release_version} — UNSIGNED PRERELEASE\n\n'
         f'Source: `{commit}` · desktop tag: `{tag}`. Independent of Kubernetes and SDK versions.\n\n'
         'macOS: Apple Silicon, macOS 14 or later; ad-hoc signed, NOT notarized. '
-        'Windows: x64 Windows 10/11; unsigned self-contained ZIP. '
         'OS security acceptance is not certified. Do not disable system security.\n\n'
-        'Mount the DMG and copy Umbod.app to Applications, or extract the entire Windows ZIP '
-        'and open Umbod.Windows.exe. Closing the window leaves the gateway running; '
+        'Mount the DMG and copy Umbod.app to Applications. Closing the window leaves the backend running; '
         'use Settings to stop it. Credentials stay in the OS vault.\n\n'
         'macOS now uses the shared Python backend with the native SwiftUI interface; '
         'the interpreter is bundled, so Docker and an external Python installation are not required. '
-        'Windows retains its existing Rust backend. Existing Mac settings are imported with a '
+        'Existing Mac settings are imported with a '
         'backup and resumable migration; reconnect MCP clients to refresh tool names. '
         'Access to legacy Keychain items or a changed unsigned executable may still require '
         'macOS approval. Dependency inventories and notices are included in each installer.\n\n'
-        'Verify the download against SHA256SUMS with `shasum -a 256` (macOS) '
-        'or `Get-FileHash -Algorithm SHA256` (PowerShell). '
+        'Upgrading from an older Mac release: download this macOS-only release manually from '
+        'https://umbod.ai/download/. Older updaters require a Windows manifest entry; '
+        'this version accepts macOS-only releases for subsequent checks.\n\n'
+        'Verify the download against SHA256SUMS with `shasum -a 256`. '
         'The desktop-downloads.json file lists the exact versioned assets and their hashes.\n\n'
-        'Limitations: no Linux or Intel Mac build; no auto-update; no real OAuth-provider '
+        'Limitations: macOS Apple Silicon only; no automatic update installation; no real OAuth-provider '
         'certification; no legacy SSE-only upstreams.\n')
     return manifest
 

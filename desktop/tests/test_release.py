@@ -28,17 +28,17 @@ class ReleaseTests(unittest.TestCase):
     def test_metadata_hashes_complete_and_exact(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
-            for name in ['Umbod-0.2.0-arm64.dmg', 'Umbod-0.2.0-release-win-x64.zip']:
+            for name in ['Umbod-0.2.0-arm64.dmg']:
                 (folder / name).write_bytes(b'test artifact')
             manifest = release.metadata(folder, '0.2.0', 'a' * 40)
             self.assertEqual(manifest['tag'], 'desktop-v0.2.0')
             self.assertEqual(manifest['status'], 'available')
-            self.assertEqual(set(manifest['assets']), {'macos-arm64', 'windows-x64'})
+            self.assertEqual(set(manifest['assets']), {'macos-arm64'})
             for asset in manifest['assets'].values():
                 self.assertEqual(asset['sha256'], hashlib.sha256(b'test artifact').hexdigest())
                 self.assertIn('/computerlovetech/umbod/releases/download/desktop-v0.2.0/', asset['url'])
             self.assertIn('UNSIGNED', (folder/'RELEASE_NOTES.md').read_text())
-            self.assertEqual(len((folder/'SHA256SUMS').read_text().splitlines()), 2)
+            self.assertEqual(len((folder/'SHA256SUMS').read_text().splitlines()), 1)
             (folder/'Umbod-0.2.0-arm64.dmg').unlink()
             with self.assertRaises(ValueError): release.metadata(folder, '0.2.0', 'a'*40)
 
@@ -47,10 +47,9 @@ class ReleaseTests(unittest.TestCase):
             folder = Path(temporary)
             with self.assertRaises(ValueError): release.metadata(folder, '0.2.0', 'main')
             (folder/'Umbod-0.2.0-arm64.dmg').write_bytes(b'')
-            (folder/'Umbod-0.2.0-release-win-x64.zip').write_bytes(b'x')
             with self.assertRaises(ValueError): release.metadata(folder, '0.2.0', 'a'*40)
             (folder/'Umbod-0.2.0-arm64.dmg').unlink()
-            (folder/'Umbod-0.2.0-arm64.dmg').symlink_to(folder/'Umbod-0.2.0-release-win-x64.zip')
+            (folder/'Umbod-0.2.0-arm64.dmg').symlink_to(ROOT/'desktop/VERSION')
             with self.assertRaises(ValueError): release.metadata(folder, '0.2.0', 'a'*40)
 
     def test_independent_version_and_safe_local_signing(self):
@@ -59,31 +58,25 @@ class ReleaseTests(unittest.TestCase):
         build = (ROOT/'desktop/scripts/build.sh').read_text()
         self.assertNotIn('find-identity', build)
         self.assertIn('$VERSION', build)
-        self.assertNotIn('Umbod 0.2.0', (ROOT/'desktop/windows/Umbod.Windows/MainWindow.cs').read_text())
-        self.assertIn('ReadAllText', (ROOT/'desktop/windows/Directory.Build.props').read_text())
         self.assertIn('desktop/', (ROOT/'.dockerignore').read_text().splitlines())
 
-    def test_version_checks_gateway_package_not_dependency_version(self):
+    def test_version_uses_only_desktop_version_file(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
-            (folder/'VERSION').write_text('0.2.0\n')
-            (folder/'Cargo.lock').write_text('[[package]]\nname = "umbod-gateway"\nversion = "0.2.0"\n')
-            (folder/'Cargo.toml').write_text('[package]\nname = "umbod-gateway"\nversion = "0.1.0"\n[dependencies.example]\nversion = "0.2.0"\n')
             with mock.patch.object(release, 'DESKTOP', folder):
-                with self.assertRaisesRegex(ValueError, 'Cargo.toml disagree'):
-                    release.version()
-                (folder/'Cargo.toml').write_text('[package]\nname = "umbod-gateway"\nversion = "0.2.0"\n')
-                self.assertEqual(release.version(), '0.2.0')
-                (folder/'Cargo.lock').write_text('[[package]]\nname = "umbod-gateway"\nversion = "0.1.0"\n')
-                with self.assertRaisesRegex(ValueError, 'Cargo.lock disagree'):
+                for value in ['0.2.0', '1.0.0']:
+                    (folder/'VERSION').write_text(value + '\n')
+                    self.assertEqual(release.version(), value)
+                (folder/'VERSION').write_text('v0.2.0\n')
+                with self.assertRaises(ValueError):
                     release.version()
 
     def test_metadata_rejects_extra_files_and_unsafe_outputs_before_writing(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
-            for name in ['Umbod-0.2.0-arm64.dmg', 'Umbod-0.2.0-release-win-x64.zip']:
+            for name in ['Umbod-0.2.0-arm64.dmg']:
                 (folder/name).write_bytes(b'artifact')
-            for name in ['config.json', 'Umbod-0.1.0-arm64.dmg']:
+            for name in ['config.json', 'Umbod-0.1.0-arm64.dmg', 'Umbod-0.2.0-release-win-x64.zip']:
                 extra = folder/name
                 extra.write_bytes(b'unexpected')
                 with self.assertRaisesRegex(ValueError, 'Unexpected release artifact'):
@@ -120,11 +113,15 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn('\n  push:', workflow)
         self.assertNotIn('\n  pull_request:', workflow)
         self.assertNotIn('desktop/dist/release/*', workflow)
+        self.assertIn('name: desktop-macos-arm64', workflow)
+        self.assertNotIn('win-x64.zip', workflow)
         for required in ['release.py guard', 'needs: [guard, build]', '--prerelease', '--latest=false', '--verify-tag', 'desktop-release', 'website-manifest-update', 'rights_confirmed', 'persist-credentials: false']:
             self.assertIn(required, workflow)
         build = (ROOT/'.github/workflows/desktop-build.yml').read_text()
-        for required in ['macos-26', 'windows-latest', 'cargo test --locked', 'bash scripts/verify.sh', '--smoke-test', 'upload-artifact@', 'bun run build', 'test_release_workflow.py']:
+        for required in ['macos-26', 'bash scripts/verify.sh', 'macos-acceptance:', 'upload-artifact@', 'bun run build', 'test_release_workflow.py']:
             self.assertIn(required, build)
+        self.assertNotIn('windows-latest', build)
+        self.assertNotIn('cargo ', build)
         verify = (ROOT/'desktop/scripts/verify.sh').read_text()
         self.assertIn('UmbodTests', verify)
         self.assertLess(verify.index('scripts/build.sh'), verify.index('UmbodTests'))

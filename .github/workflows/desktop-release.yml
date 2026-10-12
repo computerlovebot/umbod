@@ -72,8 +72,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          pattern: desktop-*
-          merge-multiple: true
+          name: desktop-macos-arm64
           path: desktop/dist/release
       - uses: actions/setup-python@v5
         with:
@@ -90,7 +89,6 @@ jobs:
             -f "ref=refs/tags/desktop-v$VERSION" -f "sha=$GITHUB_SHA"
           gh release create "desktop-v$VERSION" \
             "desktop/dist/release/Umbod-$VERSION-arm64.dmg" \
-            "desktop/dist/release/Umbod-$VERSION-release-win-x64.zip" \
             desktop/dist/release/SHA256SUMS \
             desktop/dist/release/desktop-downloads.json \
             desktop/dist/release/RELEASE_NOTES.md \

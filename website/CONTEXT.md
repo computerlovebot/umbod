@@ -38,9 +38,10 @@ Umbod has two deliberately connected products:
   operations are longer-term product goals, not present-day guarantees.
 
 Portability is a product direction, not a shipped capability. Today Desktop uses a
-Rust gateway with native SwiftUI/WPF interfaces, while the platform uses separate
+shared Python backend with a native SwiftUI interface on macOS, while the platform uses separate
 Kubernetes services. Configuration promotion between editions is not implemented.
-Do not market a shared runtime or automatic local-to-enterprise migration.
+The editions share backend code, but not deployment configuration or running processes.
+Do not market automatic local-to-enterprise migration.
 
 ## Reference projects
 
