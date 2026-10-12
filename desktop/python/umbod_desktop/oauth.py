@@ -340,6 +340,19 @@ class DesktopOAuth:
         )
 
     async def refresh(self, key):
+        self.record(key, "refresh")
+        try:
+            result = await self._refresh(key)
+        except Exception as exc:  # noqa: BLE001 - sanitize transport task groups too
+            self.record(key, "refresh", failed=True)
+            self.errors[key] = "Could not refresh authorization. Use Sign in with browser to reconnect. " + self.failure_message(exc)
+            raise DesktopOAuthFailure(self.errors[key]) from None
+        self.errors.pop(key, None)
+        self.results[key] = "signed_in"
+        self.record(key, "connected")
+        return result
+
+    async def _refresh(self, key):
         server = self.upstreams.state.data["servers"][key]
         storage = KeychainOAuthStorage(self.upstreams.vault, key, server["url"])
         await storage.load()

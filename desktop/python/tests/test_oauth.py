@@ -154,6 +154,23 @@ def test_failure_messages_do_not_expose_provider_secrets():
     assert "secret" not in message
 
 
+async def test_refresh_failure_is_actionable_and_redacted(monkeypatch):
+    from mcp.client.auth.exceptions import OAuthTokenError
+
+    from umbod_desktop.oauth import DesktopOAuthFailure
+
+    oauth = DesktopOAuth(SimpleNamespace())
+
+    async def fail(_):
+        raise ExceptionGroup("secret", [OAuthTokenError("refresh_token=secret")])
+
+    monkeypatch.setattr(oauth, "_refresh", fail)
+    with pytest.raises(DesktopOAuthFailure, match="Sign in with browser") as failure:
+        await oauth.refresh("fixture")
+    assert "secret" not in str(failure.value)
+    assert oauth.events["fixture"][-1]["result"] == "failed"
+
+
 async def test_exact_issuer_survives_discovery_and_keychain_round_trip():
     from mcp.client.auth.utils import validate_authorization_response_iss
 
