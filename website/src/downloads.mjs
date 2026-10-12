@@ -14,8 +14,10 @@ export function validateManifest(m) {
   }
   exactKeys(m, ['schemaVersion', 'status', 'version', 'tag', 'sourceCommit', 'channel', 'assets']);
   if (m.schemaVersion !== 1 || m.status !== 'available' || typeof m.version !== 'string' || !VERSION.test(m.version) || m.tag !== `desktop-v${m.version}` || m.channel !== 'unsigned-prerelease' || !/^[a-f0-9]{40}$/.test(m.sourceCommit)) throw Error('Invalid desktop release');
-  exactKeys(m.assets, Object.keys(PLATFORMS));
-  for (const [platform, info] of Object.entries(PLATFORMS)) {
+  // Accept historical two-platform releases as well as new macOS-only releases.
+  exactKeys(m.assets, m.assets && Object.hasOwn(m.assets, 'windows-x64') ? Object.keys(PLATFORMS) : ['macos-arm64']);
+  for (const platform of Object.keys(m.assets)) {
+    const info = PLATFORMS[platform];
     const asset = m.assets[platform];
     exactKeys(asset, ['url', 'sha256', 'size']);
     const expected = `https://github.com/computerlovetech/umbod/releases/download/${m.tag}/${info.file(m.version)}`;

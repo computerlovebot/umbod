@@ -8,6 +8,18 @@ func updateTests() throws {
     precondition(update?.version == "0.10.0", "Compare numeric versions, not strings")
     precondition(update?.download.lastPathComponent == "Umbod-0.10.0-arm64.dmg")
     precondition(update?.releaseNotes.lastPathComponent == "desktop-v0.10.0")
+    var macOnly = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    var assets = macOnly["assets"] as! [String: Any]
+    assets.removeValue(forKey: "windows-x64")
+    macOnly["assets"] = assets
+    let macUpdate = try DesktopUpdate.parse(JSONSerialization.data(withJSONObject: macOnly), installed: "0.2.0")
+    precondition(macUpdate?.download == update?.download, "Accept new macOS-only releases")
+    assets.removeValue(forKey: "macos-arm64")
+    macOnly["assets"] = assets
+    var rejectedMissingMac = false
+    do { _ = try DesktopUpdate.parse(JSONSerialization.data(withJSONObject: macOnly), installed: "0.2.0") }
+    catch { rejectedMissingMac = true }
+    precondition(rejectedMissingMac, "A Mac installer is required")
     let equal = try DesktopUpdate.parse(data, installed: "0.10.0")
     let older = try DesktopUpdate.parse(data, installed: "1.0.0")
     precondition(equal == nil && older == nil, "Never offer same-version reinstalls or downgrades")

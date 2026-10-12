@@ -40,11 +40,14 @@ public struct DesktopUpdate: Sendable {
         guard manifest.status == "available", let version = manifest.version,
               manifest.tag == "desktop-v\(version)", manifest.channel == "unsigned-prerelease",
               isHex(manifest.sourceCommit ?? "", count: 40), let assets = manifest.assets,
-              Set(assets.keys) == Set(["macos-arm64", "windows-x64"]) else {
+              (Set(assets.keys) == Set(["macos-arm64"]) || Set(assets.keys) == Set(["macos-arm64", "windows-x64"])) else {
             throw ContractError.message("Invalid update manifest")
         }
         let latest = try DesktopVersion(version)
-        for (platform, file) in ["macos-arm64": "Umbod-\(version)-arm64.dmg", "windows-x64": "Umbod-\(version)-release-win-x64.zip"] {
+        // The optional Windows entry is read-only compatibility with historical releases.
+        let files = ["macos-arm64": "Umbod-\(version)-arm64.dmg", "windows-x64": "Umbod-\(version)-release-win-x64.zip"]
+        for platform in assets.keys {
+            let file = files[platform]!
             guard let asset = assets[platform], asset.size > 0, isHex(asset.sha256, count: 64),
                   asset.url == "https://github.com/computerlovetech/umbod/releases/download/desktop-v\(version)/\(file)" else {
                 throw ContractError.message("Invalid update download")

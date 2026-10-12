@@ -47,6 +47,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       await writeFile(temporary, JSON.stringify(manifest, null, 2) + '\n', {flag: 'wx'});
       await rename(temporary, target);
       console.log('Verified and applied desktop manifest. Review the diff and open a PR.');
-    } else console.log('Verified public desktop release and both artifact hashes; no files changed.');
+    } else console.log('Verified public desktop release and all listed artifact hashes; no files changed.');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

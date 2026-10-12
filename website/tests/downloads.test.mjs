@@ -9,7 +9,7 @@ const fixture = () => ({ schemaVersion: 1, status: 'available', version: '0.2.0'
 
 test('only exact desktop-specific manifests are accepted', () => {
   assert.equal(validateManifest(fixture()).version, '0.2.0');
-  for (const change of [m => m.tag = 'v0.2.0', m => m.version = '01.2.0', m => m.version = '0.3.0', m => m.channel = 'stable', m => m.sourceCommit = 'main', m => m.status = 'draft', m => m.extra = true, m => delete m.assets['windows-x64'], m => m.assets.linux = {}, m => m.assets['macos-arm64'].size = -1, m => m.assets['macos-arm64'].sha256 = 'no', m => m.assets['windows-x64'].url = 'https://github.com/computerlovetech/umbod/releases/latest/download/app.zip', m => m.assets['macos-arm64'].url += '?token=private', m => m.assets['macos-arm64'].url = 'javascript:alert(1)', m => m.assets['macos-arm64'].url = m.assets['windows-x64'].url, m => m.assets['macos-arm64'].url = m.assets['macos-arm64'].url.replace('computerlovetech', 'attacker')]) {
+  for (const change of [m => m.tag = 'v0.2.0', m => m.version = '01.2.0', m => m.version = '0.3.0', m => m.channel = 'stable', m => m.sourceCommit = 'main', m => m.status = 'draft', m => m.extra = true, m => delete m.assets['macos-arm64'], m => m.assets.linux = {}, m => m.assets['macos-arm64'].size = -1, m => m.assets['macos-arm64'].sha256 = 'no', m => m.assets['windows-x64'].url = 'https://github.com/computerlovetech/umbod/releases/latest/download/app.zip', m => m.assets['macos-arm64'].url += '?token=private', m => m.assets['macos-arm64'].url = 'javascript:alert(1)', m => m.assets['macos-arm64'].url = m.assets['windows-x64'].url, m => m.assets['macos-arm64'].url = m.assets['macos-arm64'].url.replace('computerlovetech', 'attacker')]) {
     const m = fixture(); change(m); assert.throws(() => validateManifest(m));
   }
   for (const m of [null, [], {}, { schemaVersion: 1, status: 'unavailable', assets: {} }]) assert.throws(() => validateManifest(m));
@@ -80,4 +80,12 @@ test('page separation preserves the downloads module API and skips pages without
   ].sort());
   const nav = new Proxy({}, {get() { throw Error('must not inspect platform on enterprise'); }});
   await downloadsApi.initializeDownloads({getElementById: () => null}, nav);
+});
+
+test('macOS-only manifests provide the same verified Mac download', () => {
+  const manifest = fixture();
+  delete manifest.assets['windows-x64'];
+  assert.equal(validateManifest(manifest), manifest);
+  assert.deepEqual(selectDownload(manifest, 'macos-arm64'), selectDownload(fixture(), 'macos-arm64'));
+  assert.ok(renderDownloads(manifest, 'macos-arm64').includes(manifest.assets['macos-arm64'].url));
 });

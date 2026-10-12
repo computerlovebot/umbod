@@ -28,3 +28,11 @@ test('static HTML follows manifest for no-JavaScript visitors', () => {
   assert.ok(renderDesktopPage(html, {schemaVersion: 1, status:'unavailable'}).includes('not available'));
   assert.throws(() => renderDesktopPage(html, {status: 'available'}));
 });
+
+test('macOS-only publication verifies the DMG without requiring a Windows asset', async () => {
+  const macOnly = structuredClone(manifest);
+  delete macOnly.assets['windows-x64'];
+  const published = {...release(), assets: release().assets.slice(0, 1)};
+  assert.deepEqual(await verifyPublicRelease(macOnly, fetcher(published)), macOnly);
+  await assert.rejects(verifyPublicRelease(manifest, fetcher(published)));
+});
