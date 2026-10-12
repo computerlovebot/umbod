@@ -28,6 +28,7 @@ import UmbodCore
     @Published var notice = ""
     @Published var settingsSection: SettingsSection = .general
     @Published var settingsPresented = false
+    @Published var installDismissalID = UUID()
     @Published var busy = false
     @Published var activity = ""
     @Published var oauthStatuses: [String: String] = [:]
@@ -138,8 +139,9 @@ import UmbodCore
 
 }
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var installRequestMonitor: DispatchSourceFileSystemObject?
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DistributedNotificationCenter.default().addObserver(self, selector: #selector(prepareForLocalInstall(_:)), name: Notification.Name("app.umbod.desktop.prepareForLocalInstall"), object: nil, suspensionBehavior: .deliverImmediately)
+        monitorLocalInstallRequests()
         // Refresh the running Dock icon even when macOS cached an older bundle icon.
         if let iconURL = Bundle.main.url(forResource: "UmbodBrand", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) {
@@ -148,13 +150,31 @@ import UmbodCore
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
-    @objc func prepareForLocalInstall(_ notification: Notification) {
-        guard notification.object as? String == Bundle.main.bundleURL.standardizedFileURL.path else { return }
-        for window in NSApp.windows {
-            if let sheet = window.attachedSheet { window.endSheet(sheet); sheet.orderOut(nil) }
+    private func monitorLocalInstallRequests() {
+        let directory = AppModel.shared.dataDirectory ?? AppEnvironment.current.dataDirectory
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let descriptor = open(directory.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: .write, queue: .global(qos: .userInitiated))
+        let request = directory.appendingPathComponent(".local-install-request.json")
+        source.setEventHandler { @Sendable [weak self] in
+            guard let data = try? Data(contentsOf: request),
+                  let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  body["pid"] as? Int32 == ProcessInfo.processInfo.processIdentifier,
+                  body["path"] as? String == Bundle.main.bundleURL.standardizedFileURL.path,
+                  let deadline = body["expires_at"] as? Double, deadline > Date().timeIntervalSince1970 else { return }
+            try? FileManager.default.removeItem(at: request)
+            self?.perform(#selector(AppDelegate.prepareForLocalInstall), on: Thread.main, with: nil, waitUntilDone: false, modes: [RunLoop.Mode.default.rawValue, RunLoop.Mode.modalPanel.rawValue, RunLoop.Mode.eventTracking.rawValue])
         }
-        if NSApp.modalWindow != nil { NSApp.abortModal() }
-        DispatchQueue.main.async { NSApp.terminate(nil) }
+        source.setCancelHandler { @Sendable in close(descriptor) }
+        source.resume()
+        installRequestMonitor = source
+    }
+    @objc func prepareForLocalInstall() {
+        AppModel.shared.settingsPresented = false
+        AppModel.shared.installDismissalID = UUID()
+        // Let SwiftUI dismiss presentations through their owning view state.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NSApp.terminate(nil) }
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         for window in sender.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
@@ -171,7 +191,7 @@ import UmbodCore
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var model = AppModel.shared
     var body: some Scene {
-        Window(AppEnvironment.current.name, id: "main") { Workspace().environmentObject(model).frame(minWidth: 950, minHeight: 680).task { Task { await model.start() } }.task { await model.updates.monitor() } }
+        Window(AppEnvironment.current.name, id: "main") { Workspace().id(model.installDismissalID).environmentObject(model).frame(minWidth: 950, minHeight: 680).task { Task { await model.start() } }.task { await model.updates.monitor() } }
             .defaultSize(width: 1120, height: 780)
             .commands {
                 CommandGroup(replacing: .newItem) {}

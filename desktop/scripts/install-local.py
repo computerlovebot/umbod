@@ -97,7 +97,13 @@ for app in apps {
         fputs("Another release copy is running. Quit it before installing.\\n", stderr); exit(1)
     }
 }
-DistributedNotificationCenter.default().postNotificationName(Notification.Name("app.umbod.desktop.prepareForLocalInstall"), object: target.path, userInfo: nil, deliverImmediately: true)
+let request = URL(fileURLWithPath: CommandLine.arguments[2]).appendingPathComponent(".local-install-request.json")
+defer { try? FileManager.default.removeItem(at: request) }
+for app in apps {
+    let data = try JSONSerialization.data(withJSONObject: ["pid": app.processIdentifier, "path": target.path, "expires_at": Date().addingTimeInterval(30).timeIntervalSince1970])
+    try data.write(to: request, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: request.path)
+}
 RunLoop.current.run(until: Date().addingTimeInterval(1))
 for app in apps where !app.isTerminated { if !app.terminate() { exit(1) } }
 let deadline = Date().addingTimeInterval(15)
@@ -105,7 +111,7 @@ while apps.contains(where: { !$0.isTerminated }) {
     if Date() > deadline { fputs("Umbod did not quit. Close open settings or confirmation sheets, quit Umbod, then rerun this installer. The installed app has not been replaced.\\n", stderr); exit(1) }
     RunLoop.current.run(until: Date().addingTimeInterval(0.1))
 }
-''', target)
+''', target, PROFILE)
 
 
 def replace_bundle(staged: Path, target: Path, backup: Path):
