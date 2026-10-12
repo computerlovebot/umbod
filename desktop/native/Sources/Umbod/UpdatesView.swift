@@ -35,7 +35,7 @@ import UmbodCore
             let result = try await DesktopUpdate.check(installed: installed)
             available = result
             dismissed = !manual && result?.version == defaults.string(forKey: "updates.skippedVersion")
-            message = result == nil ? "No newer published update found. You have \(installed)." : "Umbod \(result!.version) is available."
+            message = result == nil ? "You’re up to date." : "Umbod \(result!.version) is available."
         } catch {
             message = "Couldn’t check for updates. Check your connection and try again."
         }
@@ -73,21 +73,20 @@ struct UpdatesView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("App updates").font(.headline)
-                    Text("Installed version: \(updates.installed)").foregroundStyle(Brand.muted)
+                    Text("Version \(updates.installed)").foregroundStyle(Brand.muted)
                 }
                 Spacer()
                 Button(updates.checking ? "Checking…" : "Check for Updates") { Task { await updates.check() } }
                     .disabled(updates.checking)
             }
-            Toggle("Automatically check for updates daily", isOn: $updates.automatic)
+            Toggle("Check automatically", isOn: $updates.automatic)
                 .onChange(of: updates.automatic) { _, enabled in if enabled { Task { await updates.check(manual: false) } } }
-            Text("Checks umbod.ai for releases. Updates are downloaded only when you choose.").font(.caption).foregroundStyle(Brand.muted)
+            Text("We’ll let you know when an update is available. You choose when to install it.").font(.caption).foregroundStyle(Brand.muted)
             if !updates.message.isEmpty { Text(updates.message).textSelection(.enabled) }
             if let update = updates.available {
-                Text("Unsigned prerelease · \(update.version)").font(.headline)
-                Text("1. Download and open the DMG.\n2. Close your MCP clients, then choose Quit for Update below. Active tool calls will be interrupted.\n3. Drag Umbod into Applications and replace the old app, then reopen Umbod and your clients. Your connections and settings are kept.")
-                    .foregroundStyle(Brand.muted)
-                Text("macOS may require approval to open this unnotarized app. Keep system security enabled.").font(.caption)
+                Text("Version \(update.version) is ready").font(.headline)
+                Text("Download the update, then replace Umbod in Applications. Your settings and connections stay with you.").foregroundStyle(Brand.muted)
+                Text("Preview release · not notarized by Apple.").font(.caption).foregroundStyle(Brand.muted)
                 HStack {
                     Button("Download Update") {
                         downloaded = NSWorkspace.shared.open(update.download)
@@ -96,9 +95,9 @@ struct UpdatesView: View {
                     Link("Release notes", destination: update.releaseNotes)
                     Button("Skip this version") { updates.skip() }
                 }
-                DisclosureGroup("Download SHA-256") { Text(update.sha256).font(.system(size: 11, design: .monospaced)).textSelection(.enabled) }
-                if downloaded { Text("Download opened in your browser. Finish downloading before quitting.").font(.caption) }
-                Button("Quit for Update…") { confirmQuit = true }.disabled(model.busy)
+                if downloaded {
+                Text("When the download finishes, quit Umbod and open the installer. Active tool calls will stop.").font(.caption).foregroundStyle(Brand.muted)
+                Button("Quit and install…") { confirmQuit = true }.disabled(model.busy)
                     .confirmationDialog("Stop the gateway and quit Umbod? Close your MCP clients first. Active tool calls will be interrupted.", isPresented: $confirmQuit) {
                         Button("Stop Gateway and Quit") {
                             Task {
@@ -110,6 +109,7 @@ struct UpdatesView: View {
                         }
                         Button("Cancel", role: .cancel) {}
                     }
+                }
             }
         }
     }

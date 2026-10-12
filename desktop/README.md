@@ -40,7 +40,7 @@ Older installed versions that require a Windows asset in update metadata cannot 
 ## Code and release index
 
 - [`python/`](python/README.md): macOS host, transport adapters, Keychain, migration and tests; reuses `umbod/api` and `packages/umbod-sdk`.
-- `native/`: SwiftUI app and Swift contract/lifecycle tests; `UmbodCore/ConnectorEditor.swift` owns the actual editor submission and retry state; `UmbodCore/DesktopUpdate.swift` validates update metadata and `Umbod/UpdatesView.swift` owns update preferences and the install guidance.
+- `native/`: SwiftUI app and Swift contract/lifecycle tests; Settings provides compact update controls and generic stdio/HTTP connection details, with the bearer token masked and available only through an explicit copy action. Connector authentication stays optional and credentials remain in Keychain; `UmbodCore/ConnectorEditor.swift` owns the actual editor submission and retry state; `UmbodCore/DesktopUpdate.swift` validates update metadata and `Umbod/UpdatesView.swift` owns update preferences and the install guidance.
 - `scripts/`: local builds, packaging, isolated fixtures, and release policy/metadata.
 - `VERSION`: independent desktop version; the single source for bundle and package versions.
 - [Release procedure](docs/RELEASING.md), [manifest application](docs/APPLY-MANIFEST.md), and [import provenance and audit](docs/PROVENANCE.md).

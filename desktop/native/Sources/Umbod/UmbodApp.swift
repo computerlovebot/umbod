@@ -235,33 +235,51 @@ struct ServerEditor: View {
         self.onSaved = onSaved
     }
     @State private var localError = ""
+    @State private var authenticationExpanded = false
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(editor.draft.id.isEmpty ? "Add connector" : "Edit connector").font(.title2.bold())
+            VStack(alignment: .leading, spacing: 8) {
+                Text(editor.draft.id.isEmpty ? "Add connector" : "Edit connector").font(.system(size: 26, weight: .semibold))
+                Text("Connect a tool source. You choose which tools your agents can use.").foregroundStyle(Brand.muted)
+            }.frame(maxWidth: .infinity, alignment: .leading)
             ScrollView { VStack(alignment: .leading, spacing: 16) {
                 TextField("Name", text: $editor.draft.name).accessibilityIdentifier("connector.name")
-                Picker("Connection", selection: $editor.draft.transport) { Text("Local process · stdio").tag("stdio"); Text("Remote · Streamable HTTP").tag("http") }.accessibilityIdentifier("connector.transport")
+                Picker("Connection", selection: $editor.draft.transport) { Text("Local process (stdio)").tag("stdio"); Text("HTTP URL").tag("http") }.accessibilityIdentifier("connector.transport")
                 if editor.draft.transport == "stdio" {
                     TextField("Executable (absolute path)", text: $editor.draft.command).accessibilityIdentifier("connector.command")
-                    Text("Use the command supplied by your MCP server. Example: /opt/homebrew/bin/uvx, with the package name as an argument.").font(.caption).foregroundStyle(Brand.muted)
+                    Text("The executable supplied by your MCP server, for example /opt/homebrew/bin/uvx.").font(.caption).foregroundStyle(Brand.muted)
                     Text("Arguments · one per line, no shell quoting").font(.caption).foregroundStyle(Brand.muted)
                     TextEditor(text: $editor.draft.arguments).accessibilityIdentifier("connector.arguments").font(.system(.body, design: .monospaced)).frame(height: 65).padding(8).background(Brand.canvas).overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.border).allowsHitTesting(false))
                 } else {
                     TextField("Endpoint URL", text: $editor.draft.url).accessibilityIdentifier("connector.url")
-                    Text("Paste the MCP server address, such as https://example.com/mcp. For browser sign-in, save first, then open Connection settings.").font(.caption).foregroundStyle(Brand.muted)
+                    Text("If sign-in is needed, you can do that after saving.").font(.caption).foregroundStyle(Brand.muted)
                 }
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Optional credential · stored only in Keychain").font(.system(size: 14, weight: .semibold)).padding(.top, 8)
-                    TextField(editor.draft.transport == "stdio" ? "Environment variable name" : "Header name (Authorization, X-API-Key…)", text: $editor.credentialName)
-                    SecureField(editor.draft.transport == "stdio" ? "Secret environment value" : "Header value (include Bearer prefix for a bearer token)", text: $editor.credential)
-                    Text(editor.draft.transport == "http" ? "Leave credentials blank if the server uses browser sign-in. Sign in after saving." : "Leave blank unless your MCP server requires an environment variable.").font(.caption).foregroundStyle(Brand.muted)
+                Button { authenticationExpanded.toggle() } label: {
+                    HStack {
+                        Image(systemName: "key")
+                        Text("Authentication").fontWeight(.medium)
+                        Text("Optional").foregroundStyle(Brand.muted)
+                        Spacer()
+                        Image(systemName: authenticationExpanded ? "chevron.up" : "chevron.down")
+                    }.frame(maxWidth: .infinity).padding(.vertical, 5).contentShape(Rectangle())
+                }.accessibilityIdentifier("connector.authentication")
+                if authenticationExpanded {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(editor.draft.transport == "http" ? "For browser sign-in, leave this blank and sign in after saving." : "Only needed if your server requires a secret environment variable.")
+                            .font(.caption).foregroundStyle(Brand.muted)
+                        TextField(editor.draft.transport == "stdio" ? "Environment variable name" : "Header name", text: $editor.credentialName)
+                        SecureField(editor.draft.transport == "stdio" ? "Secret value" : "Header value (e.g. Bearer …)", text: $editor.credential)
+                        Text("Saved securely in macOS Keychain. Existing credentials are kept when left blank.").font(.caption).foregroundStyle(Brand.muted)
+                    }.padding(16).background(Brand.soft, in: RoundedRectangle(cornerRadius: 10))
                 }
-                DisclosureGroup("Advanced credential references") { Text("JSON maps names to upstream: Keychain references. Never put secret values here.").font(.caption); TextField("Headers", text: $editor.draft.headerReferences); TextField("Environment", text: $editor.draft.environmentReferences) }
             }.padding(2) }.textFieldStyle(BrandTextFieldStyle()).disabled(editor.saving)
             if !editor.draft.id.isEmpty { Text("Changing connection details requires reconnecting. Renaming keeps the connection and enabled tools.").font(.caption).foregroundStyle(Brand.muted) }
             if !localError.isEmpty { Text(localError).foregroundStyle(Brand.danger) }
             HStack { Spacer(); Button("Cancel") { dismiss() }; Button(editor.saving ? "Saving…" : "Save connector") { save() }.buttonStyle(BrandButtonStyle(primary: true)).disabled(editor.saving || editor.draft.name.isEmpty).accessibilityIdentifier("connector.save") }
-        }.padding(24).frame(width: 620, height: 660).modifier(BrandAppearance())
+        }.padding(28).frame(width: 580, height: editor.draft.transport == "stdio" ? (authenticationExpanded ? 710 : 550) : (authenticationExpanded ? 570 : 410)).modifier(BrandAppearance())
+        .onChange(of: editor.draft.transport) { _, transport in
+            if editor.credential.isEmpty { editor.credentialName = transport == "http" ? "Authorization" : "" }
+        }
     }
     func save() {
         Task {
@@ -278,51 +296,48 @@ struct ServerEditor: View {
 struct ConnectionView: View {
     @EnvironmentObject var model: AppModel
     @State private var copying = false
-    @State private var guide: MCPClientGuide?
     private var configuration: String { (try? ClientConfiguration.bridge(bundlePath: Bundle.main.bundlePath, environment: .current, executable: model.dataDirectory == nil ? AppEnvironment.current.gatewayExecutable : nil)) ?? "" }
+    private var endpoint: String { "http://\(model.backend.gateway)/mcp" }
+    private var command: String {
+        let document = try? JSONSerialization.jsonObject(with: Data(configuration.utf8)) as? [String: Any]
+        let servers = document?["mcpServers"] as? [String: [String: Any]]
+        return servers?[AppEnvironment.current.serverName]?["command"] as? String ?? ""
+    }
     var body: some View {
-        if AppEnvironment.current == .dev {
-            Text("Development connection. Use this in a dedicated test project or session; keep your everyday agents connected to Umbod.").font(.callout).foregroundStyle(Brand.muted)
-        }
-        ForEach(MCPClientGuide.allCases) { client in
-            Panel {
-                HStack(spacing: 16) {
-                    Image(systemName: client.symbol).font(.title2).foregroundStyle(Brand.accent).frame(width: 28)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(client.rawValue).font(.headline)
-                        Text(client.summary).foregroundStyle(Brand.muted)
-                    }
-                    Spacer()
-                    Button(client == .chatGPT ? "Details" : "Set up \(client.rawValue)") { guide = client }
-                }
-            }
-        }
-        .sheet(item: $guide) { client in
-            MCPGuideSheet(client: client, configuration: configuration, copy: { copyConfiguration() })
-        }
-        Text("Other MCP clients").font(.headline).padding(.top, 8)
         Panel {
-            Text("1. Copy your connection configuration").font(.headline)
-            Text("Use this configuration with any client that supports local MCP connections.").foregroundStyle(Brand.muted)
-            Text(configuration).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
-                .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Brand.soft, in: RoundedRectangle(cornerRadius: 8))
-            Button(copying ? "Preparing…" : "Copy configuration") { copyConfiguration() }
+            Label("Standard IO (stdio)", systemImage: "terminal").font(.headline)
+            Text("Add this configuration to your agent’s MCP settings.").foregroundStyle(Brand.muted)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Command").font(.caption).foregroundStyle(Brand.muted)
+                Text(command).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                Text("Arguments").font(.caption).foregroundStyle(Brand.muted).padding(.top, 4)
+                Text("bridge --profile \(AppEnvironment.current.rawValue)").font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Brand.soft, in: RoundedRectangle(cornerRadius: 8))
+            Button(copying ? "Copying…" : "Copy configuration") { copyConfiguration() }
                 .buttonStyle(BrandButtonStyle(primary: true)).disabled(copying)
-            Text("2. Add Umbod in your client's MCP settings").font(.headline)
-            Text("Merge the \(AppEnvironment.current.serverName) entry into its mcpServers configuration, keeping any existing entries.").foregroundStyle(Brand.muted)
-            Text("3. Start using your tools").font(.headline)
-            Text("Enable tools by opening their connector in Umbod. Every MCP client gets the same enabled tools.").foregroundStyle(Brand.muted)
         }
         Panel {
-            DisclosureGroup("Advanced: direct HTTP connection") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Endpoint: http://\(model.backend.gateway)/mcp").textSelection(.enabled)
-                    Text("Use Authorization: Bearer <Umbod connection token>. The gateway reuses its saved port across restarts; the bridge reads its runtime record.").font(.callout).foregroundStyle(Brand.muted)
-                    Button("Copy connection token") { copyConfiguration(token: true) }.disabled(copying)
-                }.padding(.top, 12)
+            Label("HTTP", systemImage: "link").font(.headline)
+            Text("For MCP clients running on this Mac. Use the URL and bearer token below.").foregroundStyle(Brand.muted)
+            HStack {
+                Text(endpoint).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Copy URL") { model.copy(endpoint, message: "MCP URL copied.") }
+                    .disabled(!model.online)
+            }.padding(12).background(Brand.soft, in: RoundedRectangle(cornerRadius: 8))
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Bearer token").font(.subheadline.weight(.medium))
+                    // Never fetch the real token for display or accessibility.
+                    Text("••••••••••••••••").font(.system(.body, design: .monospaced))
+                        .accessibilityLabel("Connection token hidden")
+                }
+                Spacer()
+                Button("Copy token") { copyConfiguration(token: true) }.disabled(copying)
             }
+            Text("This secret lets your agent use the tools you enable in Umbod.").font(.caption).foregroundStyle(Brand.muted)
         }
-        // Also initialize for users who select and copy the visible JSON themselves.
         .task { do { _ = try await model.backend.request(["action": "connection_setup"]) } catch { if !Task.isCancelled { model.error = error.localizedDescription } } }
     }
     private func copyConfiguration(token: Bool = false) {
@@ -333,8 +348,8 @@ struct ConnectionView: View {
                 _ = try await model.backend.request(["action": "connection_setup"])
                 if token {
                     let value = try await model.backend.request(["action": "connection_token"])
-                    if let credential = value["token"] as? String { model.copy(credential, message: "Connection token copied. Treat the clipboard as sensitive.") }
-                } else { model.copy(configuration) }
+                    if let credential = value["token"] as? String { model.copy(credential, message: "Token copied.") }
+                } else { model.copy(configuration, message: "Configuration copied.") }
             } catch { model.error = error.localizedDescription }
         }
     }
@@ -343,7 +358,7 @@ enum SettingsSection: String, CaseIterable {
     case general = "General", mcp = "MCP"
     var symbol: String { self == .general ? "slider.horizontal.3" : "point.3.connected.trianglepath.dotted" }
     var subtitle: String {
-        self == .general ? "Manage your local gateway and application preferences." : "Use your connector tools in your AI client. Choose a setup guide below."
+        self == .general ? "Keep Umbod up to date and ready to use." : "Connect your agent to Umbod. Choose either method below."
     }
 }
 struct SettingsMenuButton: View {
@@ -420,56 +435,43 @@ struct SettingsView: View {
 }
 struct GeneralSettingsView: View {
     @EnvironmentObject var model: AppModel
-    @State private var reference = "upstream:"
-    @State private var secret = ""
     var body: some View {
         UpdatesView(updates: model.updates)
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Gateway").font(.headline)
-                    Text(model.online ? "Running on loopback only" : "Offline").foregroundStyle(Brand.muted)
-                    if model.backend.updateAvailable {
-                        Text("Backend update ready. Restart gateway to apply.").font(.caption).foregroundStyle(Brand.accent)
-                    }
+        Panel {
+            HStack(spacing: 16) {
+                Image(systemName: model.online ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(model.online ? Brand.accent : Brand.muted).font(.title2)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(model.online ? "Ready for your agents" : "Connection stopped").font(.headline)
+                    Text(model.backend.updateAvailable ? "Restart to apply the latest changes." : "Umbod keeps running when you close this window.")
+                        .font(.callout).foregroundStyle(Brand.muted)
                 }
                 Spacer()
-                Button(model.online ? "Restart gateway" : "Start gateway") {
-                    Task {
-                        model.busy = true
-                        defer { model.busy = false }
-                        do { try await model.backend.shutdown(); model.online = false; await model.start() }
-                        catch { model.error = error.localizedDescription }
-                    }
-                }.disabled(model.busy)
-                Button("Stop gateway") {
-                    Task {
-                        model.busy = true
-                        defer { model.busy = false }
-                        do { try await model.backend.shutdown(); model.online = false }
-                        catch { model.error = error.localizedDescription }
-                    }
-                }.disabled(model.busy || !model.online)
-            }.padding(24)
-            Divider().overlay(Brand.border).padding(.horizontal, 24)
-            HStack(spacing: 24) {
-                Text("MCP address").font(.headline)
-                Spacer()
-                Text(model.backend.gateway).foregroundStyle(Brand.muted).textSelection(.enabled)
-            }.padding(24)
-            Divider().overlay(Brand.border).padding(.horizontal, 24)
-            Text("The gateway stays running when you quit this app. Restart it to load backend changes; active tool calls may be interrupted. Your connections and endpoint are preserved.")
-                .font(.caption).foregroundStyle(Brand.muted).padding(24)
-        }.background(Brand.soft, in: RoundedRectangle(cornerRadius: 12))
-        Panel {
-            Text("Local setup diagnostics").font(.headline)
-            Toggle("Keep local funnel counts and timing", isOn: Binding(get: { model.diagnostics["enabled"] as? Bool ?? false }, set: { model.act(["action":"diagnostics_set", "enabled":$0]) }))
-            Text("Off by default. Turning off erases recorded counts and timing. No tokens, prompts, arguments or results; nothing is sent to analytics services.").font(.caption).foregroundStyle(.secondary)
-            if model.diagnostics["enabled"] as? Bool == true {
-                Text((try? JSONText.encode(model.diagnostics)) ?? "{}").font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                if !model.online || model.backend.updateAvailable {
+                    Button(model.online ? "Restart" : "Start") { restart() }.disabled(model.busy)
+                } else {
+                    Menu {
+                        Button("Restart connection") { restart() }
+                        Button("Stop connection") {
+                            Task {
+                                model.busy = true
+                                defer { model.busy = false }
+                                do { try await model.backend.shutdown(); model.online = false }
+                                catch { model.error = error.localizedDescription }
+                            }
+                        }
+                    } label: { Image(systemName: "ellipsis") }
+                    .help("Connection controls").accessibilityLabel("Connection controls").disabled(model.busy)
+                }
             }
         }
-        Panel { Text("Credential vault").font(.headline); Text("Store a credential for a custom header or environment variable. Reference names are public identifiers; values stay in macOS Keychain.").foregroundStyle(Brand.muted); TextField("Reference, e.g. upstream:weather-key", text: $reference).textFieldStyle(BrandTextFieldStyle()); SecureField("Credential value", text: $secret).textFieldStyle(BrandTextFieldStyle()); HStack { Button("Store in Keychain") { model.act(["action": "secret_set", "reference": reference, "value": secret], success: "Credential stored in Keychain"); secret = "" }.disabled(secret.isEmpty || reference == "upstream:"); Button("Delete credential", role: .destructive) { model.act(["action": "secret_delete", "reference": reference], success: "Credential deleted") }.disabled(reference == "upstream:") } }
-        Panel { Text("\(AppEnvironment.current.name) · \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development")").font(.headline); Text("Native SwiftUI interface · Shared Python backend\nLocal connectors and shared tool permissions.").foregroundStyle(Brand.muted); Text("This build is ad-hoc signed and not notarized. Real OAuth providers have not been certified. Legacy SSE-only connectors are unsupported.").font(.caption).foregroundStyle(Brand.muted); Button("Open project") { NSWorkspace.shared.open(URL(string: "https://github.com/computerlovetech/umbod")!) } }
+    }
+    private func restart() {
+        Task {
+            model.busy = true
+            defer { model.busy = false }
+            do { try await model.backend.shutdown(); model.online = false; await model.start() }
+            catch { model.error = error.localizedDescription }
+        }
     }
 }

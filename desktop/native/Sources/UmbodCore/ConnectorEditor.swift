@@ -12,6 +12,7 @@ import Foundation
 
     public init(draft: ServerDraft) {
         self.draft = draft
+        credentialName = draft.transport == "http" ? "Authorization" : ""
         credentialNamespace = draft.id.isEmpty ? UUID().uuidString.lowercased() : draft.id
     }
 

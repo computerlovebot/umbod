@@ -87,6 +87,7 @@ struct ConnectorManagementView: View {
     let server: [String: Any]
     var edit: () -> Void
     @State private var clientID = ""
+    @State private var advancedSignIn = false
     private var id: String { server["id"] as? String ?? "" }
     private var oauthStatus: String {
         switch model.oauthStatuses[id] {
@@ -117,9 +118,16 @@ struct ConnectorManagementView: View {
                 Panel {
                     Text("Browser sign-in (OAuth)").font(.headline)
                     Text(oauthStatus).font(.callout).foregroundStyle(Brand.muted)
-                    DisclosureGroup("Advanced sign-in settings") {
+                    Button { advancedSignIn.toggle() } label: {
+                        HStack {
+                            Text("Use a custom client ID")
+                            Spacer()
+                            Image(systemName: advancedSignIn ? "chevron.up" : "chevron.down")
+                        }.frame(maxWidth: .infinity).contentShape(Rectangle())
+                    }
+                    if advancedSignIn {
                         TextField("Public client ID (optional)", text: $clientID)
-                        Text("Only needed when your MCP provider supplies a client ID.").font(.caption)
+                        Text("Only needed when your provider supplies a client ID.").font(.caption)
                     }
                     HStack {
                         Button("Sign in with browser") { model.signIn(id, clientID: clientID) }
