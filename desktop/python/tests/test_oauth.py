@@ -192,6 +192,23 @@ async def test_missing_refresh_token_is_reported_without_expiring_access():
     assert storage.document.expires_at > time.time()
 
 
+async def test_rejected_refresh_does_not_expire_a_valid_saved_token():
+    from umbod_desktop.oauth import DesktopConnectorOAuth, DesktopOAuthFailure
+
+    storage = KeychainOAuthStorage(MemoryVault(), "fixture", "https://tools.example/mcp")
+    storage.document.tokens = OAuthToken(access_token="fixture-secret", token_type="Bearer", refresh_token="fixture-refresh")
+    storage.document.expires_at = time.time() + 3600
+    await storage.save()
+    auth = DesktopConnectorOAuth(storage, force_refresh=True)
+    await auth._initialize()
+    assert auth.context.token_expiry_time < time.time()
+    with pytest.raises(DesktopOAuthFailure, match="refresh token expired") as failure:
+        await auth._handle_refresh_response(httpx2.Response(400, json={"error": "invalid_grant", "error_description": "secret"}))
+    assert "secret" not in str(failure.value)
+    await storage.load()
+    assert storage.document.expires_at > time.time()
+
+
 async def test_exact_issuer_survives_discovery_and_keychain_round_trip():
     from mcp.client.auth.utils import validate_authorization_response_iss
 

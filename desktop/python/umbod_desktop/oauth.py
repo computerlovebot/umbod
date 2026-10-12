@@ -52,10 +52,11 @@ class KeychainOAuthStorage(ConnectorOAuthStorage):
 
 
 class DesktopConnectorOAuth(ConnectorOAuth):
-    def __init__(self, *args, requested_scope="", metadata_url=None, force_authorization=False, **kwargs):
+    def __init__(self, *args, requested_scope="", metadata_url=None, force_authorization=False, force_refresh=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.requested_scope = requested_scope
         self.force_authorization = force_authorization
+        self.force_refresh = force_refresh
         self.token_received = False
         self.context.client_metadata_url = metadata_url
         self.context.client_metadata.token_endpoint_auth_method = "none"
@@ -64,6 +65,8 @@ class DesktopConnectorOAuth(ConnectorOAuth):
         await super()._initialize()
         if self.context.client_info and self.context.client_info.client_id == CLIENT_METADATA_URL:
             self.context.client_metadata_url = CLIENT_METADATA_URL
+        if self.force_refresh:
+            self.context.token_expiry_time = time.time() - 1
         if self.force_authorization:
             # Keep the saved authorization usable if the user cancels this attempt,
             # but do not silently reuse it instead of requesting the chosen scopes.
@@ -77,7 +80,7 @@ class DesktopConnectorOAuth(ConnectorOAuth):
             self.context.client_metadata.scope = self.requested_scope
         return await super()._perform_authorization()
 
-    async def _handle_token_response(self, response):
+    async def _handle_token_response(self, response, *, refresh=False):
         if response.status_code not in {200, 201}:
             await response.aread()
             try:
@@ -95,7 +98,7 @@ class DesktopConnectorOAuth(ConnectorOAuth):
                 await self.storage.save()
             reasons = {
                 "invalid_client": "The provider rejected the registered client.",
-                "invalid_grant": "The authorization code expired or did not match this sign-in.",
+                "invalid_grant": "The refresh token expired or was revoked." if refresh else "The authorization code expired or did not match this sign-in.",
                 "invalid_scope": "The provider rejected the requested permissions.",
                 "invalid_request": "The provider rejected the token request.",
                 "unauthorized_client": "This client is not authorized for this provider.",
@@ -110,6 +113,14 @@ class DesktopConnectorOAuth(ConnectorOAuth):
         self.storage.document.metadata = self.context.oauth_metadata
         self.storage.document.authorization_server = self.context.auth_server_url
         await self.storage.save()
+
+    async def _handle_refresh_response(self, response):
+        if response.status_code != 200:
+            await self._handle_token_response(response, refresh=True)
+        refreshed = await super()._handle_refresh_response(response)
+        if refreshed:
+            self.force_refresh = False
+        return refreshed
 
 
 class RuntimeOAuth(DesktopConnectorOAuth):
@@ -292,7 +303,7 @@ class DesktopOAuth:
             return DesktopOAuth.failure_message(exc.exceptions[0])
         if exc.__cause__ is not None:
             return DesktopOAuth.failure_message(exc.__cause__)
-        if type(exc).__name__ == "MCPError":
+        if type(exc).__name__ in {"MCPError", "McpError"}:
             return "The MCP server rejected connection or tool discovery. Authorization may already be saved. Check the server’s access settings, then retry discovery."
         if type(exc).__name__ == "OAuthFlowError" and str(exc).startswith("Protected resource "):
             return "The provider advertises a different MCP endpoint. Use its canonical endpoint URL in Edit connection, then sign in again."
@@ -361,10 +372,8 @@ class DesktopOAuth:
         await storage.load()
         if storage.document.tokens is None or not storage.document.tokens.refresh_token:
             raise DesktopOAuthFailure("This provider did not issue a refresh token. Sign in with browser to renew access.")
-        storage.document.expires_at = time.time() - 1
-        await storage.save()
         async with Client(
-            StreamableHttpTransport(server["url"], auth=DesktopConnectorOAuth(storage))
+            StreamableHttpTransport(server["url"], auth=DesktopConnectorOAuth(storage, force_refresh=True))
         ) as client:
             await client.list_tools()
         await self.upstreams.start(key, server)
