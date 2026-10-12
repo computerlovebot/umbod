@@ -44,6 +44,7 @@ from umbod.core.capabilities.tools.refs import ConnectorToolRef
 from umbod.core.connectors.native.tools.runtime_state import ConnectorToolRuntimeState
 from umbod.core.activation.events import ConnectorCapabilityActivationChanged
 from umbod_sdk.connectors.discovery import load_connector_plugins
+from umbod.mcp.agent_instructions import register_agent_instructions
 from umbod.mcp.administrator import register_administrator_connector_configuration_tools
 from umbod.mcp.auth import MCPAuthProviderFactory
 from umbod.mcp.auth.consent_screen import install_umbod_consent_screen
@@ -205,6 +206,7 @@ async def build_mcp_with_openapi_adapters(settings: MCPAppSettings, auth_provide
     mcp.openapi_codemode_executor = build_openapi_codemode_executor(mcp, mcp.connector_tool_invocation_logger)
     downstream_permission_policy = UnrestrictedDownstreamToolPermissionPolicy() if group_permission_runtime_state is None else GroupDownstreamToolPermissionPolicy(group_permission_runtime_state)
     await _register_downstream_mcp_provider(mcp, settings, downstream_permission_policy, persistence_runtime.database, invocation_policy)
+    register_agent_instructions(mcp)
     return mcp
 
 async def _register_downstream_mcp_provider(mcp: FastMCP, settings: MCPAppSettings, permission_policy: UnrestrictedDownstreamToolPermissionPolicy | GroupDownstreamToolPermissionPolicy, database: Database, invocation_policy: ConnectorInvocationPolicy) -> None:

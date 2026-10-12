@@ -105,7 +105,7 @@ async def test_all_exposure_modes_expose_native_capabilities_without_leaking_gat
         templated = await client.read_resource('data://vikunja/42')
     assert [item.name for item in prompts] == [PROXY_PROMPT_NAME]
     assert prompt.messages[0].content.text == 'Summarize Roadmap'
-    assert [str(item.uri) for item in resources] == ['data://vikunja/fixed']
+    assert {str(item.uri) for item in resources} == {'data://vikunja/fixed', 'umbod://setup/agent-instructions'}
     assert [item.uri_template for item in templates] == ['data://vikunja/{task_id}']
     assert fixed[0].text == 'fixed tasks'
     assert templated[0].text == 'task 42'

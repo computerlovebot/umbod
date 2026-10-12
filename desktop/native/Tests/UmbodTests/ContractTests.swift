@@ -106,6 +106,10 @@ import UmbodCore
             async with Client(StdioTransport(command=sys.argv[1], args=['bridge', 'legacy-fixture-id', '--profile', sys.argv[3], '--data-dir', sys.argv[2], '--test-credentials']), mode='legacy') as client:
                 async with asyncio.timeout(20):
                     assert {tool.name for tool in await client.list_tools()} == {'search_tools', 'execute_tool'}
+                    setup_uri = 'umbod://setup/agent-instructions'
+                    assert setup_uri in {str(resource.uri) for resource in await client.list_resources()}
+                    setup = await client.read_resource(setup_uri)
+                    assert '<!-- umbod:begin -->' in setup[0].text
                     while not (matches := (await client.call_tool('search_tools', {'query': 'echo'})).structured_content['matches']):
                         await asyncio.sleep(.1)
                 result = await client.call_tool('execute_tool', {'tool_name': matches[0]['tool_name'], 'arguments': {'text': 'native-python-fixture'}})

@@ -10,6 +10,7 @@ import uvicorn
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
+from umbod.mcp.agent_instructions import AGENT_INSTRUCTIONS, AGENT_INSTRUCTIONS_URI
 
 from umbod_desktop.runtime import create_desktop_app
 from umbod_desktop.security import DESKTOP_GROUP, persistent_secret
@@ -175,6 +176,12 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                         headers={"Authorization": f"Bearer {agent_token}"},
                     )
                 ) as first_agent:
+                    resources = await first_agent.list_resources()
+                    setup = next(resource for resource in resources if str(resource.uri) == AGENT_INSTRUCTIONS_URI)
+                    assert setup.mime_type == "text/markdown"
+                    contents = await first_agent.read_resource(AGENT_INSTRUCTIONS_URI)
+                    assert contents[0].text == AGENT_INSTRUCTIONS
+                    assert await first_agent.list_prompts() == []
                     async with asyncio.timeout(15):
                         while not await discovered_names(first_agent):
                             await asyncio.sleep(0.1)
