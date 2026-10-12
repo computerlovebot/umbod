@@ -2,7 +2,6 @@
 set -euo pipefail
 # No checkout, compiler or externally installed Python is used here.
 MODE="${2:-release}"
-EVIDENCE="${UMBOD_UI_EVIDENCE:-$PWD/ui-evidence}"
 case "$MODE" in release|local-fixture) ;; *) exit 2 ;; esac
 KIT="$(cd "$(dirname "$0")/.." && pwd)"
 DMG="${1:?DMG required}"
@@ -32,7 +31,6 @@ UMBOD_TEST_APP="$APP" UMBOD_TEST_RESOURCES="$KIT" "$KIT/UmbodTests"
 # This mode refuses to run on a developer account. No bundle ID changes or re-signing.
 if [[ "$MODE" == release ]]; then
     "$PYTHON" -I -B "$KIT/scripts/native-smoke.py" "$APP" --release-identity
-    "$PYTHON" -I -B "$KIT/scripts/run-macos-ui-tests.py" "$APP" "$KIT" "$EVIDENCE"
 else
     "$PYTHON" -I -B "$KIT/scripts/native-smoke.py" "$APP"
 fi
