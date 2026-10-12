@@ -106,14 +106,33 @@ class DesktopUpstreams:
         return value
 
     async def prepare(self, server: dict) -> dict:
-        server = DesktopServer.model_validate(server).model_dump()
+        draft = DesktopServer.model_validate(server)
+        server = draft.model_dump()
         key = server.get("host_id") or uuid4().hex
         if key not in self.state.data["servers"] and server.get("host_id"):
             raise ValueError("Unknown desktop connector")
+        previous = self.state.data["servers"].get(key)
+        connection_fields = (
+            "transport",
+            "command",
+            "args",
+            "url",
+            "oauth",
+            "headers",
+            "env",
+        )
+        connection_changed = (
+            draft.reconnect
+            or previous is None
+            or any(
+                previous.get(field) != server.get(field) for field in connection_fields
+            )
+        )
         try:
-            await self.start(key, server)
-            self.state.data.setdefault("transport_errors", {}).pop(key, None)
-        except (ValueError, OSError):
+            if connection_changed:
+                await self.start(key, server)
+                self.state.data.setdefault("transport_errors", {}).pop(key, None)
+        except ValueError, OSError:
             # Keep editable offline drafts, but stop the previously configured transport.
             old = self.lifetimes.pop(key, None)
             self.apps.pop(key, None)
@@ -126,6 +145,7 @@ class DesktopUpstreams:
         self.state.save()
         return {
             "host_id": key,
+            "connection_changed": connection_changed,
             "configuration": {
                 "auth_mode": "static_bearer",
                 "endpoint_url": f"{self.origin}/desktop/upstreams/{key}/mcp",
@@ -140,7 +160,7 @@ class DesktopUpstreams:
             try:
                 await self.start(key, server)
                 errors.pop(key, None)
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 errors[key] = (
                     "Reconnect this connector after restoring its executable or Keychain credentials."
                 )

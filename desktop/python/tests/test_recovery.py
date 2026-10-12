@@ -196,3 +196,37 @@ async def test_moved_profile_stops_host_even_when_replacement_exists(tmp_path):
     assert stopped.is_set()
     assert not owns_profile(directory, identity, lock_identity)
     assert replacement_record.read_text() == '{"pid": 123}'
+
+
+async def test_renaming_upstream_preserves_live_transport(tmp_path):
+    from test_runtime import MemoryVault
+
+    from umbod_desktop.upstreams import DesktopUpstreams
+
+    host = DesktopUpstreams(
+        DesktopState(tmp_path), MemoryVault(), "fixture", "http://127.0.0.1:1"
+    )
+    starts = []
+
+    async def start(key, server):
+        starts.append(key)
+
+    host.start = start
+    prepared = await host.prepare(
+        {"name": "Original", "transport": "stdio", "command": "/usr/bin/python3"}
+    )
+    key = prepared["host_id"]
+    renamed = await host.prepare({**host.state.data["servers"][key], "name": "Renamed"})
+    assert renamed["connection_changed"] is False
+    assert len(starts) == 1
+    changed = await host.prepare(
+        {**host.state.data["servers"][key], "command": "/different/python"}
+    )
+    assert changed["connection_changed"] is True
+    assert len(starts) == 2
+    refreshed = await host.prepare(
+        {**host.state.data["servers"][key], "reconnect": True}
+    )
+    assert refreshed["connection_changed"] is True
+    assert len(starts) == 3
+    assert "reconnect" not in host.state.data["servers"][key]

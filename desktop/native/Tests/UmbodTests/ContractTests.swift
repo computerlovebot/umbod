@@ -58,8 +58,6 @@ import UmbodCore
         editor.credential = "fixture-only"
         editor.draft.arguments += "\n--require-env"
         try await editor.save { try await backend.request($0) }
-        let savedServer: [String: Any] = ["id": editor.draft.id]
-        _ = try await backend.request(["action": "connect", "id": savedServer["id"]!])
         let connected = try await backend.request(["action": "status"])
         precondition((connected["tools"] as? [Any])?.count == 2)
         let connection = try await backend.request(["action": "connection_setup"])
@@ -70,6 +68,11 @@ import UmbodCore
         _ = try await backend.request(["action": "grant", "tool": toolName, "allow": true])
         let allowed = try await backend.request(["action": "status"])
         precondition((allowed["allowed_tools"] as? [String])?.contains(toolName) == true)
+        var renamed = (allowed["servers"] as! [[String: Any]]).first!
+        renamed["name"] = "Renamed fixture"
+        _ = try await backend.request(["action": "server_save", "server": try ServerDraft(renamed).payload()])
+        let afterRename = try await backend.request(["action": "status"])
+        precondition((afterRename["allowed_tools"] as? [String])?.contains(toolName) == true, "Renaming must preserve tool permissions")
         let agent = Process()
         agent.executableURL = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/python/bin/python3")
         agent.arguments = ["-I", "-B", "-c", """

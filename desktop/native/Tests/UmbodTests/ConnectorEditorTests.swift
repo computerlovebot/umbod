@@ -31,6 +31,7 @@ import UmbodCore
                 }
                 let payload = request["server"] as! [String: Any]
                 precondition(payload["id"] as? String == "")
+                precondition(payload["reconnect"] as? Bool == true)
                 precondition((payload[transport == "stdio" ? "env" : "headers"] as! [String: String])["FIXTURE"] == stored)
                 throw ContractError.message("Fixture save failure")
             }
@@ -41,6 +42,7 @@ import UmbodCore
             precondition(request["action"] as? String == "server_save", "Retry must reuse the stored credential")
             let payload = request["server"] as! [String: Any]
             precondition(payload["id"] as? String == "")
+            precondition(payload["reconnect"] as? Bool == true)
             precondition((payload[transport == "stdio" ? "env" : "headers"] as! [String: String])["FIXTURE"] == stored)
             return ["server": ["id": "pending:fixture"]]
         }

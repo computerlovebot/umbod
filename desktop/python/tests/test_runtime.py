@@ -163,12 +163,67 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                         origin + "/mcp",
                         headers={"Authorization": f"Bearer {agent_token}"},
                     )
+                ) as first_agent:
+                    async with asyncio.timeout(15):
+                        while not await first_agent.list_tools():
+                            await asyncio.sleep(0.1)
+                # Adding another connector must not hide its enabled tools behind
+                # a runtime catalog or permission snapshot from the first connector.
+                second = await client.post(
+                    "/api/admin/connectors/mcp",
+                    json={
+                        "metadata": {
+                            "display_name": "Second fixture",
+                            "tool_name_prefix": "second",
+                            "capability_description": "Second fixture tools",
+                            "public_path": "/mcp/proxies/second",
+                        },
+                        "configuration": prepared.json()["configuration"],
+                    },
+                )
+                assert second.status_code == 201, second.text
+                second_id = second.json()["connector_id"]
+                second_base = f"/api/admin/connectors/mcp/{second_id}"
+                assert (
+                    await client.put(second_base + "/publication")
+                ).status_code == 200
+                assert (
+                    await client.put(
+                        second_base + "/tools/activation",
+                        json={
+                            "tools": [
+                                {"tool_id": "echo", "activation_status": "enabled"}
+                            ]
+                        },
+                    )
+                ).status_code == 200
+                assert (
+                    await client.put(
+                        f"/api/admin/mcp-permissions/groups/{DESKTOP_GROUP}/permissions",
+                        json={
+                            "capabilities": [
+                                {
+                                    "connector_id": second_id,
+                                    "capability_kind": "tool",
+                                    "capability_key": "echo",
+                                    "permission_status": "enabled",
+                                }
+                            ]
+                        },
+                    )
+                ).status_code == 200
+                agent_token = persistent_secret(vault, "python:agent-token")
+                async with Client(
+                    StreamableHttpTransport(
+                        origin + "/mcp",
+                        headers={"Authorization": f"Bearer {agent_token}"},
+                    )
                 ) as agent:
                     async with asyncio.timeout(15):
-                        while not (available := await agent.list_tools()):
+                        while len(available := await agent.list_tools()) != 2:
                             await asyncio.sleep(0.1)
                     result = await agent.call_tool(
-                        available[0].name,
+                        next(t.name for t in available if t.name == "fixture_echo"),
                         {
                             "text"
                             if transport == "legacy_stdio"
@@ -191,10 +246,15 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                     )
                     assert revoked.status_code == 200
                     async with asyncio.timeout(15):
-                        while await agent.list_tools():
+                        while any(
+                            t.name == "fixture_echo" for t in await agent.list_tools()
+                        ):
                             await asyncio.sleep(0.1)
                     with pytest.raises(ToolError):
-                        await agent.call_tool(available[0].name, {"message": "denied"})
+                        await agent.call_tool(
+                            next(t.name for t in available if t.name == "fixture_echo"),
+                            {"message": "denied"},
+                        )
                 for path in (
                     "/api/admin/connectors/mcp",
                     "/system/mcp-permissions/groups",
@@ -255,7 +315,7 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                             "connectors"
                         ]
                     )
-                    == 2
+                    == 3
                 )
                 migrated_tools = (
                     await client.get(f"/api/admin/connectors/mcp/{migrated_id}/tools")

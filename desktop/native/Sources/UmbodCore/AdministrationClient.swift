@@ -98,7 +98,10 @@ import Foundation
             connectorID = createdID
         } else {
             connectorID = id
-            result = try await send("PUT", connector(id) + "/configuration", configuration)
+            if prepared["connection_changed"] as? Bool != false {
+                _ = try await send("PUT", connector(id) + "/configuration", configuration)
+            }
+            result = [:]
             _ = try await send("PATCH", connector(id), ["display_name": draft["name"] as? String ?? "Connector"])
         }
         _ = try await send("PUT", "/desktop/upstreams/" + component(hostID) + "/binding", ["connector_id": connectorID])
@@ -109,6 +112,9 @@ import Foundation
         guard let separator = identity.firstIndex(of: ".") else { throw ContractError.message("Invalid tool identity") }
         let id = String(identity[..<separator]), tool = String(identity[identity.index(after: separator)...])
         _ = try await send("POST", "/api/admin/mcp-permissions/groups/desktop-owner")
+        // Tool enablement includes publication; discovery alone does not expose tools.
+        // This also repairs connectors saved by older desktop builds without publication.
+        if allow { _ = try await send("PUT", connector(id) + "/publication") }
         // Revoke activation first; only grant permission after activation succeeds.
         _ = try await send("PUT", connector(id) + "/tools/activation", ["tools": [["tool_id": tool, "activation_status": allow ? "enabled" : "disabled"]]])
         return try await send("PUT", "/api/admin/mcp-permissions/groups/desktop-owner/permissions", ["capabilities": [["connector_id": id, "capability_kind": "tool", "capability_key": tool, "permission_status": allow ? "enabled" : "disabled"]]])
@@ -128,6 +134,8 @@ import Foundation
                 let saved = state["servers"] as? [String: [String: Any]] ?? [:]
                 guard var draft = saved[String(id.dropFirst(8))] else { throw ContractError.message("Connector draft is missing") }
                 draft["id"] = id
+                // Retry an offline draft even when its saved configuration is unchanged.
+                draft["reconnect"] = true
                 let response = try await save(draft)
                 connectorID = (response["server"] as? [String: Any])?["id"] as? String ?? ""
                 guard !connectorID.hasPrefix("pending:") && !connectorID.isEmpty else { throw ContractError.message("Cannot connect. Check the executable, address, or sign-in and retry.") }

@@ -8,6 +8,7 @@ import Foundation
     @Published public var credential = ""
     @Published public private(set) var saving = false
     private let credentialNamespace: String
+    private var credentialsChanged = false
 
     public init(draft: ServerDraft) {
         self.draft = draft
@@ -33,13 +34,16 @@ import Foundation
             if key == "env" { draft.environmentReferences = encoded }
             else { draft.headerReferences = encoded }
             credential = ""
+            credentialsChanged = true
             payload[key] = references
         }
+        if credentialsChanged { payload["reconnect"] = true }
         let response = try await request(["action": "server_save", "server": payload])
         guard let server = response["server"] as? [String: Any], let id = server["id"] as? String, !id.isEmpty else {
             throw ContractError.message("The backend did not return a connector identity. Refresh the connector list before retrying.")
         }
         // A refresh failure after a successful save must not turn a retry into another create.
         draft.id = id
+        credentialsChanged = false
     }
 }

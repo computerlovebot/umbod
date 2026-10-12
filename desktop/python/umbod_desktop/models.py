@@ -17,6 +17,7 @@ class DesktopServer(BaseModel):
     args: list[str] = Field(default_factory=list)
     url: str = ""
     oauth: bool = False
+    reconnect: bool = Field(default=False, exclude=True)
     headers: dict[str, str] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
 
