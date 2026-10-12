@@ -4,14 +4,14 @@ import UmbodCore
 
 struct Overview: View {
     @EnvironmentObject var model: AppModel
-    @Binding var page: Page?
+    var addConnector: () -> Void
     var body: some View {
         ToolUsageView()
         if model.servers.isEmpty {
             Panel {
                 Text("Connect your first tools").font(.headline)
                 Text("Add a connector, enable its tools, then connect your AI app in Settings → MCP.").foregroundStyle(Brand.muted)
-                Button("Add a connector") { page = .servers }.buttonStyle(BrandButtonStyle(primary: true))
+                Button("Add a connector", action: addConnector).buttonStyle(BrandButtonStyle(primary: true))
             }
         }
     }

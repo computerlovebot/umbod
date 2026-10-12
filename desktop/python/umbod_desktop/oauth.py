@@ -108,6 +108,7 @@ class DesktopOAuth:
                 self.callbacks.pop(nonce, None)
                 self.expected_states.pop(nonce, None)
 
+        self.results[key] = "pending"
         self.tasks[key] = asyncio.create_task(authorize())
         async with asyncio.timeout(30):
             url = await asyncio.shield(redirect)
@@ -123,13 +124,16 @@ class DesktopOAuth:
             request.query_params.get("code"),
             request.query_params.get("state"),
         )
-        if (
-            not code
-            or not state
-            or not secrets.compare_digest(
-                state, self.expected_states.get(request.path_params["nonce"], "")
-            )
+        if not state or not secrets.compare_digest(
+            state, self.expected_states.get(request.path_params["nonce"], "")
         ):
+            return PlainTextResponse("Missing authorization response.", status_code=400)
+        if request.query_params.get("error"):
+            future.set_exception(ValueError("Browser authorization was declined"))
+            return PlainTextResponse(
+                "Sign-in was not approved. Return to Umbod to try again."
+            )
+        if not code:
             return PlainTextResponse("Missing authorization response.", status_code=400)
         future.set_result(
             AuthorizationCodeResult(

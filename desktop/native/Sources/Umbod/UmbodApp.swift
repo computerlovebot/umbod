@@ -29,6 +29,8 @@ import UmbodCore
     @Published var settingsSection: SettingsSection = .general
     @Published var settingsPresented = false
     @Published var busy = false
+    @Published var activity = ""
+    @Published var oauthStatuses: [String: String] = [:]
     @Published var online = false
     private var starting = false
     func start() async {
@@ -77,10 +79,11 @@ import UmbodCore
         tools = state["tools"] as? [[String: Any]] ?? []
         allowedTools = Set(state["allowed_tools"] as? [String] ?? [])
         statuses = state["statuses"] as? [String: String] ?? [:]
+        oauthStatuses = state["oauth_status"] as? [String: String] ?? [:]
         online = backend.isRunning
     }
     func act(_ body: [String: Any], success: String = "") {
-        Task { busy = true; error = ""; defer { busy = false }
+        Task { busy = true; error = ""; activity = body["action"] as? String == "connect" ? "Connecting and discovering tools…" : "Updating connector…"; defer { busy = false; activity = "" }
             do { _ = try await backend.request(body); try await refresh(); notice = success }
             catch { self.error = error.localizedDescription }
         }
@@ -89,11 +92,32 @@ import UmbodCore
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); notice = message
     }
     func signIn(_ id: String, clientID: String) {
-        Task { busy = true; error = ""; defer { busy = false }
-            do { let result = try await backend.request(["action": "oauth_begin", "id": id, "client_id": clientID]); if let value = result["url"] as? String, let url = URL(string: value) { NSWorkspace.shared.open(url) }; try await refresh() }
-            catch { self.error = error.localizedDescription }
+        Task {
+            busy = true; error = ""; activity = "Opening browser sign-in…"
+            defer { busy = false; activity = "" }
+            do {
+                let result = try await backend.request(["action": "oauth_begin", "id": id, "client_id": clientID])
+                if let value = result["url"] as? String, !value.isEmpty, let url = URL(string: value) {
+                    guard NSWorkspace.shared.open(url) else { throw ContractError.message("Could not open your browser. Try signing in again.") }
+                }
+                activity = "Waiting for browser sign-in. Complete the sign-in in your browser."
+                for _ in 0..<160 {
+                    try await refresh()
+                    switch oauthStatuses[id] {
+                    case "signed_in":
+                        notice = "Signed in. Connect to discover your tools."
+                        return
+                    case "failed":
+                        throw ContractError.message("Browser sign-in did not complete. Try again in Connection settings.")
+                    default: break
+                    }
+                    try await Task.sleep(for: .seconds(2))
+                }
+                throw ContractError.message("Browser sign-in timed out. Try again in Connection settings.")
+            } catch { self.error = error.localizedDescription }
         }
     }
+
 }
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -134,6 +158,7 @@ struct Workspace: View {
     @EnvironmentObject var model: AppModel
     @State private var page: Page? = .overview
     @State private var selectedConnector: String?
+    @State private var addingConnector = false
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
@@ -146,7 +171,7 @@ struct Workspace: View {
                     .padding(.horizontal, 12).padding(.top, 18).padding(.bottom, 12)
                 VStack(spacing: 4) {
                     ForEach(Page.allCases) { item in
-                        Button { page = item } label: {
+                        Button { selectedConnector = nil; page = item } label: {
                             Label(item.rawValue, systemImage: item == .overview ? "square.grid.2x2" : "point.3.connected.trianglepath.dotted").frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(NavigationButtonStyle(selected: page == item))
@@ -186,11 +211,12 @@ struct Workspace: View {
                     }
                     StatusMessages()
                     UpdateBanner(updates: model.updates)
-                    switch page ?? .overview { case .overview: Overview(page: $page); case .servers: ServersView(selectedConnector: $selectedConnector) }
+                    switch page ?? .overview { case .overview: Overview(addConnector: { addingConnector = true }); case .servers: ServersView(selectedConnector: $selectedConnector) }
                 }.padding(.horizontal, 40).padding(.vertical, 48).frame(maxWidth: 1440, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.background(Brand.canvas)
         }
+        .sheet(isPresented: $addingConnector) { ServerEditor(draft: ServerDraft(), onSaved: { selectedConnector = nil; page = .servers }).environmentObject(model) }
         .disabled(model.settingsPresented)
         .accessibilityHidden(model.settingsPresented)
         .overlay {
@@ -225,7 +251,11 @@ struct ServerEditor: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
     @StateObject private var editor: ConnectorEditor
-    init(draft: ServerDraft) { _editor = StateObject(wrappedValue: ConnectorEditor(draft: draft)) }
+    private let onSaved: () -> Void
+    init(draft: ServerDraft, onSaved: @escaping () -> Void = {}) {
+        _editor = StateObject(wrappedValue: ConnectorEditor(draft: draft))
+        self.onSaved = onSaved
+    }
     @State private var localError = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -235,18 +265,22 @@ struct ServerEditor: View {
                 Picker("Connection", selection: $editor.draft.transport) { Text("Local process · stdio").tag("stdio"); Text("Remote · Streamable HTTP").tag("http") }.accessibilityIdentifier("connector.transport")
                 if editor.draft.transport == "stdio" {
                     TextField("Executable (absolute path)", text: $editor.draft.command).accessibilityIdentifier("connector.command")
+                    Text("Use the command supplied by your MCP server. Example: /opt/homebrew/bin/uvx, with the package name as an argument.").font(.caption).foregroundStyle(Brand.muted)
                     Text("Arguments · one per line, no shell quoting").font(.caption).foregroundStyle(Brand.muted)
                     TextEditor(text: $editor.draft.arguments).accessibilityIdentifier("connector.arguments").font(.system(.body, design: .monospaced)).frame(height: 65).padding(8).background(Brand.canvas).overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.border).allowsHitTesting(false))
-                } else { TextField("Endpoint URL", text: $editor.draft.url).accessibilityIdentifier("connector.url") }
+                } else {
+                    TextField("Endpoint URL", text: $editor.draft.url).accessibilityIdentifier("connector.url")
+                    Text("Paste the MCP server address, such as https://example.com/mcp. For browser sign-in, save first, then open Connection settings.").font(.caption).foregroundStyle(Brand.muted)
+                }
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Optional credential · stored only in Keychain").font(.system(size: 14, weight: .semibold)).padding(.top, 8)
                     TextField(editor.draft.transport == "stdio" ? "Environment variable name" : "Header name (Authorization, X-API-Key…)", text: $editor.credentialName)
                     SecureField(editor.draft.transport == "stdio" ? "Secret environment value" : "Header value (include Bearer prefix for a bearer token)", text: $editor.credential)
-                    Text("Leave blank for no change. Use browser sign-in after saving for OAuth.").font(.caption).foregroundStyle(Brand.muted)
+                    Text(editor.draft.transport == "http" ? "Leave credentials blank if the server uses browser sign-in. Sign in after saving." : "Leave blank unless your MCP server requires an environment variable.").font(.caption).foregroundStyle(Brand.muted)
                 }
                 DisclosureGroup("Advanced credential references") { Text("JSON maps names to upstream: Keychain references. Never put secret values here.").font(.caption); TextField("Headers", text: $editor.draft.headerReferences); TextField("Environment", text: $editor.draft.environmentReferences) }
             }.padding(2) }.textFieldStyle(BrandTextFieldStyle()).disabled(editor.saving)
-            if !editor.draft.id.isEmpty { Text("Saving edits disconnects this connector and resets its shared tool permissions. Reconnect and enable the tools you want.").font(.caption).foregroundStyle(Brand.muted) }
+            if !editor.draft.id.isEmpty { Text("Changing connection details requires reconnecting. Renaming keeps the connection and enabled tools.").font(.caption).foregroundStyle(Brand.muted) }
             if !localError.isEmpty { Text(localError).foregroundStyle(Brand.danger) }
             HStack { Spacer(); Button("Cancel") { dismiss() }; Button(editor.saving ? "Saving…" : "Save connector") { save() }.buttonStyle(BrandButtonStyle(primary: true)).disabled(editor.saving || editor.draft.name.isEmpty).accessibilityIdentifier("connector.save") }
         }.padding(24).frame(width: 620, height: 660).modifier(BrandAppearance())
@@ -258,6 +292,7 @@ struct ServerEditor: View {
                 try await editor.save { try await model.backend.request($0) }
                 try await model.refresh()
                 dismiss()
+                onSaved()
             } catch { localError = error.localizedDescription }
         }
     }

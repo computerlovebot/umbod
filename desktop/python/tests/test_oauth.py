@@ -94,3 +94,23 @@ async def test_wrong_callback_state_does_not_consume_pending_sign_in():
     assert (await oauth.callback(request("expected"))).status_code == 200
     assert future.result().code == "fixture"
     assert (await oauth.callback(request("expected"))).status_code == 400
+
+
+async def test_declined_browser_consent_finishes_pending_callback():
+    oauth = DesktopOAuth(SimpleNamespace())
+    future = asyncio.get_running_loop().create_future()
+    oauth.callbacks["nonce"] = future
+    oauth.expected_states["nonce"] = "expected"
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/desktop/oauth/callback/nonce",
+            "path_params": {"nonce": "nonce"},
+            "query_string": b"error=access_denied&state=expected",
+            "headers": [],
+        }
+    )
+    assert (await oauth.callback(request)).status_code == 200
+    with pytest.raises(ValueError, match="declined"):
+        await future

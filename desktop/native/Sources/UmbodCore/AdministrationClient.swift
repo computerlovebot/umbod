@@ -34,6 +34,8 @@ import Foundation
         let saved = host["servers"] as? [String: [String: Any]] ?? [:]
         var servers: [[String: Any]] = [], tools: [[String: Any]] = [], enabled: [String] = []
         var statuses: [String: String] = [:]
+        var oauthStatuses: [String: String] = [:]
+        let hostOAuth = host["oauth_status"] as? [String: String] ?? [:]
         let permissions = try await send("GET", "/api/admin/mcp-permissions/groups/desktop-owner")
         let grants = permissions["capabilities"] as? [[String: Any]] ?? []
         let connectorGrants = Set(permissions["connector_ids"] as? [String] ?? [])
@@ -43,6 +45,7 @@ import Foundation
             var server = saved.values.first { $0["id"] as? String == id } ?? ["transport": "http", "url": detail["endpoint_url"] ?? ""]
             server["id"] = id; server["name"] = item["display_name"]
             servers.append(server)
+            if let key = server["host_id"] as? String { oauthStatuses[id] = hostOAuth[key] ?? (server["oauth"] as? Bool == true ? "signed_in" : "signed_out") }
             let health = item["health"] as? [String: Any] ?? [:]
             statuses[id] = health["status"] as? String == "healthy" ? "Connected" : "Disconnected"
             let catalog = try await send("GET", connector(id) + "/tools")
@@ -63,9 +66,11 @@ import Foundation
             let id = "pending:" + key
             pending["id"] = id; pending["host_id"] = key
             servers.append(pending)
-            statuses[id] = "Not connected — configure authentication, then connect"
+            oauthStatuses[id] = hostOAuth[key] ?? (value["oauth"] as? Bool == true ? "signed_in" : "signed_out")
+            statuses[id] = "Not connected — open connection settings to sign in or connect"
         }
         var result = host
+        result["oauth_status"] = oauthStatuses
         result["servers"] = servers; result["tools"] = tools; result["allowed_tools"] = enabled; result["statuses"] = statuses
         return result
     }

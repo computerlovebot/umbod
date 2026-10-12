@@ -88,10 +88,22 @@ struct ConnectorManagementView: View {
     var edit: () -> Void
     @State private var clientID = ""
     private var id: String { server["id"] as? String ?? "" }
+    private var oauthStatus: String {
+        switch model.oauthStatuses[id] {
+        case "pending": "Waiting for browser sign-in…"
+        case "signed_in": "Signed in"
+        case "failed": "Sign-in failed. Try again."
+        default: server["oauth"] as? Bool == true ? "Signed in" : "Not signed in"
+        }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack { Text(server["name"] as? String ?? "Connection settings").font(.title2.bold()); Spacer(); Button("Done") { dismiss() } }
             StatusMessages()
+            if model.busy {
+                HStack { ProgressView().controlSize(.small); Text(model.activity) }
+                    .accessibilityIdentifier("connector.progress")
+            }
             Text(model.statuses[id] ?? "Disconnected").foregroundStyle(Brand.muted)
             Panel {
                 Text("Connection").font(.headline)
@@ -104,7 +116,11 @@ struct ConnectorManagementView: View {
             if server["transport"] as? String == "http" {
                 Panel {
                     Text("Browser sign-in (OAuth)").font(.headline)
-                    TextField("Public client ID (optional)", text: $clientID)
+                    Text(oauthStatus).font(.callout).foregroundStyle(Brand.muted)
+                    DisclosureGroup("Advanced sign-in settings") {
+                        TextField("Public client ID (optional)", text: $clientID)
+                        Text("Only needed when your MCP provider supplies a client ID.").font(.caption)
+                    }
                     HStack {
                         Button("Sign in with browser") { model.signIn(id, clientID: clientID) }
                         Button("Refresh token") { model.act(["action":"oauth_refresh", "id":id], success: "Token refreshed and transport reconnected.") }
@@ -185,7 +201,7 @@ struct ConnectorToolsView: View {
                                 Text("TOOL DETAILS").font(.system(size: 10, design: .monospaced)).tracking(1).foregroundStyle(Brand.muted)
                                 Text(String(name.dropFirst(id.count + 1))).font(.system(size: 15, weight: .semibold, design: .monospaced)).textSelection(.enabled)
                                 Text(tool["description"] as? String ?? "No description provided.").font(.system(size: 14)).lineSpacing(4).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                                HStack { Text("Available to your apps"); Spacer(); permissionToggle(name) }
+                                HStack { Text(model.allowedTools.contains(name) ? "Enabled for your apps" : "Disabled for your apps"); Spacer(); permissionToggle(name) }
                                 Divider()
                                 DisclosureGroup("Input schema") {
                                     Text((try? JSONText.encode(tool["inputSchema"] ?? [:])) ?? "{}").font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(.top, 12)
