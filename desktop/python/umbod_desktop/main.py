@@ -57,6 +57,27 @@ def bundled_profile() -> str:
     return profile
 
 
+def owns_profile(
+    directory: Path, identity: tuple[int, int], lock_identity: tuple[int, int]
+) -> bool:
+    """A moved/replaced profile must not leave a host reading its replacement."""
+    try:
+        current = directory.stat()
+        lock = (directory / "python.lock").stat()
+        return (current.st_dev, current.st_ino) == identity and (
+            lock.st_dev,
+            lock.st_ino,
+        ) == lock_identity
+    except OSError:
+        return False
+
+
+async def watch_profile(directory, identity, lock_identity, shutdown):
+    while owns_profile(directory, identity, lock_identity):
+        await asyncio.sleep(0.5)
+    shutdown()
+
+
 async def serve(arguments) -> None:
     from .runtime import create_desktop_app
 
@@ -70,6 +91,9 @@ async def serve(arguments) -> None:
     os.umask(0o077)
     with (directory / "python.lock").open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        directory_stat, lock_stat = directory.stat(), os.fstat(lock.fileno())
+        identity = (directory_stat.st_dev, directory_stat.st_ino)
+        lock_identity = (lock_stat.st_dev, lock_stat.st_ino)
         await retire_legacy_host(directory, arguments.profile)
         endpoint_path = directory / "python-endpoint.json"
         with socket.socket() as listener:
@@ -93,6 +117,9 @@ async def serve(arguments) -> None:
                 )
             )
             task = asyncio.create_task(server.serve(sockets=[listener]))
+            ownership_task = asyncio.create_task(
+                watch_profile(directory, identity, lock_identity, shutdown)
+            )
             try:
                 while not server.started:
                     if task.done():
@@ -125,7 +152,17 @@ async def serve(arguments) -> None:
             finally:
                 server.should_exit = True
                 await task
-                (directory / "python-runtime.json").unlink(missing_ok=True)
+                ownership_task.cancel()
+                await asyncio.gather(ownership_task, return_exceptions=True)
+                # Never remove a replacement host's record after a profile move.
+                if owns_profile(directory, identity, lock_identity):
+                    record_path = directory / "python-runtime.json"
+                    try:
+                        record = json.loads(record_path.read_text())
+                        if record.get("pid") == os.getpid():
+                            record_path.unlink(missing_ok=True)
+                    except OSError, ValueError:
+                        pass
 
 
 async def bridge(arguments) -> None:

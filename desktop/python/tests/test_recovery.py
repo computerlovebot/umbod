@@ -168,3 +168,31 @@ def test_fixture_bridge_survives_client_removing_tmpdir(tmp_path, monkeypatch):
     monkeypatch.delenv("TMPDIR", raising=False)
     monkeypatch.setattr(tempfile, "tempdir", "/tmp")
     assert FixtureVault(directory).get("python:agent-token") == "dummy"
+
+
+async def test_moved_profile_stops_host_even_when_replacement_exists(tmp_path):
+    import asyncio
+
+    from umbod_desktop.main import owns_profile, watch_profile
+
+    directory = tmp_path / "profile"
+    directory.mkdir()
+    lock_path = directory / "python.lock"
+    lock_path.touch()
+    identity = (directory.stat().st_dev, directory.stat().st_ino)
+    lock_identity = (lock_path.stat().st_dev, lock_path.stat().st_ino)
+    stopped = asyncio.Event()
+    task = asyncio.create_task(
+        watch_profile(directory, identity, lock_identity, stopped.set)
+    )
+    await asyncio.sleep(0)
+    assert not stopped.is_set()
+    directory.rename(tmp_path / "moved-profile")
+    directory.mkdir()
+    (directory / "python.lock").touch()
+    replacement_record = directory / "python-runtime.json"
+    replacement_record.write_text('{"pid": 123}')
+    await asyncio.wait_for(task, timeout=2)
+    assert stopped.is_set()
+    assert not owns_profile(directory, identity, lock_identity)
+    assert replacement_record.read_text() == '{"pid": 123}'

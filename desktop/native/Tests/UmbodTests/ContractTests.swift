@@ -126,8 +126,23 @@ import UmbodCore
         restoredAgent.standardOutput = FileHandle.nullDevice
         try restoredAgent.run(); restoredAgent.waitUntilExit()
         precondition(restoredAgent.terminationStatus == 0, "Persisted permissions and transport must survive restart")
-        try await secondUI.shutdown()
+        let movedDirectory = persistentDirectory.deletingLastPathComponent().appendingPathComponent("umbod-test-moved-" + UUID().uuidString)
+        try FileManager.default.moveItem(at: persistentDirectory, to: movedDirectory)
+        try FileManager.default.createDirectory(at: persistentDirectory, withIntermediateDirectories: true)
+        let replacementRecord = persistentDirectory.appendingPathComponent("python-runtime.json")
+        let replacement = Data("{\"pid\":123}".utf8)
+        try replacement.write(to: replacementRecord)
+        for _ in 0..<300 {
+            if !secondUI.isRunning { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        precondition(!secondUI.isRunning, "A gateway must stop when its profile is moved")
+        let retainedRecord = try Data(contentsOf: replacementRecord)
+        precondition(retainedRecord == replacement, "An orphan must not remove a replacement host's record")
+        secondUI.stop()
+        try FileManager.default.removeItem(at: movedDirectory)
         try FileManager.default.removeItem(at: persistentDirectory)
+        log("PASS: moved profile stops its gateway and preserves replacement runtime metadata")
         log("PASS: persistent gateway survives UI detach, reattaches to same PID, restarts on same endpoint")
         log("PASS: Swift server contract and secret-free bridge configuration")
     }

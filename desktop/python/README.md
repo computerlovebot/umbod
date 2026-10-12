@@ -23,7 +23,7 @@ The desktop host provides authenticated stdio/HTTP transport adapters instead of
 
 ## Recovery and lifecycle
 
-A persistent launch installs an immutable runtime under the profile's `runtimes/<build-id>/Contents`, with stable bridge links under `bin/`. Closing the app leaves it running; reopening authenticates and checks its profile/PID. A new app build reports a restart requirement while the existing process continues. A saved-port conflict or missing encryption credential fails closed rather than generating new identities or silently changing the endpoint.
+A persistent launch installs an immutable runtime under the profile's `runtimes/<build-id>/Contents`, with stable bridge links under `bin/`. Closing the app leaves it running; reopening authenticates and checks its profile/PID. A new app build reports a restart requirement while the existing process continues. A gateway watches the identity of its profile directory and lock and exits if either is moved or replaced, so an orphan cannot consume the replacement profile’s events. Shutdown removes only its own runtime record. A saved-port conflict or missing encryption credential fails closed rather than generating new identities or silently changing the endpoint.
 
 Migration writes `config.before-python.json` and a journal in `desktop-v2.json`; repeated imports recover connectors by deterministic public path. Failed imports preserve their original source and display a repair message. Do not delete the SQLite database or Keychain root secret to retry. Existing bridge command paths and HTTP credentials are retained, but clients must rediscover the shared backend's tool names. The current native workspace uses connector setup and Settings → MCP.
 
