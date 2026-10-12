@@ -13,6 +13,8 @@ from fastmcp.exceptions import ToolError
 
 from umbod_desktop.runtime import create_desktop_app
 from umbod_desktop.security import DESKTOP_GROUP, persistent_secret
+from umbod_desktop.storage import DesktopState
+from umbod_desktop.tool_names import DesktopToolNames
 
 
 class MemoryVault:
@@ -113,15 +115,19 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                     json={
                         "metadata": {
                             "display_name": "Fixture",
-                            "tool_name_prefix": "fixture",
                             "capability_description": "Fixture tools",
-                            "public_path": "/mcp/proxies/fixture",
+                            "public_path": "/mcp/proxies/desktop-46b824c3-b082-4a1a-8177-c2c096eec4ce",
                         },
                         "configuration": prepared.json()["configuration"],
                     },
                 )
                 assert created.status_code == 201, created.text
+                assert created.json()["tool_name_prefix"] == "Fixture"
                 identifier = created.json()["connector_id"]
+                assert (await client.put(
+                    f"/desktop/upstreams/{prepared.json()['host_id']}/binding",
+                    json={"connector_id": identifier},
+                )).status_code == 200
                 base = f"/api/admin/connectors/mcp/{identifier}"
                 discovered = await client.post(base + "/discoveries")
                 assert discovered.status_code == 200, discovered.text
@@ -223,7 +229,7 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                         while len(available := await agent.list_tools()) != 2:
                             await asyncio.sleep(0.1)
                     result = await agent.call_tool(
-                        next(t.name for t in available if t.name == "fixture_echo"),
+                        next(t.name for t in available if t.name == "Fixture_echo"),
                         {
                             "text"
                             if transport == "legacy_stdio"
@@ -236,6 +242,32 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                     assert (
                         "hello python" not in (tmp_path / "desktop-v2.json").read_text()
                     )
+                    # Simulate a saved UUID prefix, then repair it through the
+                    # real API without changing activation or permission grants.
+                    legacy_prefix = "desktop_46b824c3_b082_4a1a_8177_c2c096eec4ce"
+                    assert (await client.patch(
+                        base, json={"tool_name_prefix": legacy_prefix}
+                    )).status_code == 200
+                    async with asyncio.timeout(15):
+                        while not any(t.name == legacy_prefix + "_echo" for t in await agent.list_tools()):
+                            await asyncio.sleep(0.1)
+
+                    async def admin_request(method, path, body=None):
+                        response = await client.request(method, "/api/admin" + path, json=body)
+                        response.raise_for_status()
+                        return response.json()
+
+                    names = DesktopToolNames(admin_request)
+                    await names.repair(DesktopState(tmp_path))
+                    await names.repair(DesktopState(tmp_path))
+                    async with asyncio.timeout(15):
+                        while "Fixture_echo" not in {t.name for t in await agent.list_tools()}:
+                            await asyncio.sleep(0.1)
+                    assert legacy_prefix + "_echo" not in {t.name for t in await agent.list_tools()}
+                    repaired = await agent.call_tool("Fixture_echo", {
+                        "text" if transport == "legacy_stdio" else "message": "after repair"
+                    })
+                    assert "after repair" in str(repaired)
                     revoked = await client.put(
                         base + "/tools/activation",
                         json={
@@ -247,12 +279,12 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                     assert revoked.status_code == 200
                     async with asyncio.timeout(15):
                         while any(
-                            t.name == "fixture_echo" for t in await agent.list_tools()
+                            t.name == "Fixture_echo" for t in await agent.list_tools()
                         ):
                             await asyncio.sleep(0.1)
                     with pytest.raises(ToolError):
                         await agent.call_tool(
-                            next(t.name for t in available if t.name == "fixture_echo"),
+                            next(t.name for t in available if t.name == "Fixture_echo"),
                             {"message": "denied"},
                         )
                 for path in (
@@ -321,6 +353,7 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                     await client.get(f"/api/admin/connectors/mcp/{migrated_id}/tools")
                 ).json()["tools"]
                 assert migrated_tools[0]["activation_status"] == "enabled"
+                assert (await client.get(f"/api/admin/connectors/mcp/{migrated_id}")).json()["tool_name_prefix"] == "Fixture_2"
                 assert (await client.get("/desktop/state")).json()["tool_usage"][
                     f"{migrated_id}.echo"
                 ]["succeeded"] == 3

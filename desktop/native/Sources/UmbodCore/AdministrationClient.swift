@@ -113,7 +113,7 @@ import Foundation
         if id.isEmpty {
             let slug = "desktop-" + UUID().uuidString.lowercased()
             do {
-                result = try await send("POST", "/api/admin/connectors/mcp", ["metadata": ["display_name": draft["name"] as? String ?? "Connector", "tool_name_prefix": slug.replacingOccurrences(of: "-", with: "_"), "capability_description": "Tools from \(draft["name"] as? String ?? "connector")", "public_path": "/mcp/proxies/" + slug], "configuration": configuration])
+                result = try await send("POST", "/api/admin/connectors/mcp", ["metadata": ["display_name": draft["name"] as? String ?? "Connector", "capability_description": "Tools from \(draft["name"] as? String ?? "connector")", "public_path": "/mcp/proxies/" + slug], "configuration": configuration])
             } catch {
                 // Keep a disconnected draft so OAuth and offline connections can be repaired.
                 return ["server": ["id": "pending:" + hostID], "status": "pending"]

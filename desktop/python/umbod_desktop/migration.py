@@ -13,6 +13,7 @@ from umbod.core.connectors.downstream_mcp.adapters.fastmcp.oauth import (
 
 from .security import DESKTOP_GROUP
 from .storage import atomic_json
+from .tool_names import DesktopToolNames
 
 
 class DesktopMigration:
@@ -24,6 +25,7 @@ class DesktopMigration:
             base_url="http://127.0.0.1",
             headers={"Authorization": f"Bearer {token}"},
         )
+        self.tool_names = DesktopToolNames(self.request)
 
     async def request(self, method, path, body=None):
         response = await self.client.request(method, "/api/admin" + path, json=body)
@@ -119,7 +121,9 @@ class DesktopMigration:
                         {
                             "metadata": {
                                 "display_name": server["name"],
-                                "tool_name_prefix": slug.replace("-", "_"),
+                                "tool_name_prefix": self.tool_names.available_prefix(
+                                    server["name"], await self.tool_names.inventory()
+                                ),
                                 "capability_description": f"Tools from {server['name']}",
                                 "public_path": f"/mcp/proxies/{slug}",
                             },
