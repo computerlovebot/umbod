@@ -120,7 +120,7 @@ async def create_desktop_app(
 
     @host.get("/desktop/state")
     async def desktop_state():
-        return {**state.data, "oauth_status": oauth.results}
+        return {**state.data, "oauth_status": oauth.results, "oauth_errors": oauth.errors}
 
     @host.post("/desktop/upstreams")
     async def prepare(request: Request):
@@ -225,10 +225,10 @@ async def create_desktop_app(
             try:
                 if action == "oauth_refresh":
                     return await oauth.refresh(key)
-                return await oauth.begin(key, body.get("client_id", ""))
+                return await oauth.begin(key, body.get("client_id", ""), body.get("scopes"))
             except (ValueError, TimeoutError):
                 raise HTTPException(
-                    422, "Browser sign-in failed; check the connector and retry"
+                    422, oauth.errors.get(key, "Browser sign-in failed; check the connector and retry")
                 ) from None
         if action == "diagnostics_set":
             state.data["diagnostics"] = {"enabled": bool(body.get("enabled"))}

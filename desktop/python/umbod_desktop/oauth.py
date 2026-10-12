@@ -20,6 +20,10 @@ from umbod.core.connectors.downstream_mcp.adapters.fastmcp.oauth import (
 from .security import CredentialVault
 
 
+class DesktopOAuthFailure(ValueError):
+    """Only fixed, secret-free messages may be constructed at this boundary."""
+
+
 class KeychainOAuthStorage(ConnectorOAuthStorage):
     def __init__(self, vault: CredentialVault, key: str, url: str) -> None:
         super().__init__(AuthorizationDocument(endpoint_url=url), connector_id=key)
@@ -44,7 +48,50 @@ class KeychainOAuthStorage(ConnectorOAuthStorage):
         self.expected_value = value
 
 
-class RuntimeOAuth(ConnectorOAuth):
+class DesktopConnectorOAuth(ConnectorOAuth):
+    def __init__(self, *args, requested_scope="", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.requested_scope = requested_scope
+        self.context.client_metadata.token_endpoint_auth_method = "none"
+
+    async def _perform_authorization(self):
+        # Discovery advertises available scopes, not the user's permission choice.
+        # Apply the explicit limit after the SDK's discovery/step-up selection.
+        if self.requested_scope:
+            self.context.client_metadata.scope = self.requested_scope
+        return await super()._perform_authorization()
+
+    async def _handle_token_response(self, response):
+        if response.status_code not in {200, 201}:
+            await response.aread()
+            try:
+                code = response.json().get("error")
+            except (ValueError, AttributeError):
+                code = None
+            if not isinstance(code, str):
+                code = None
+            if code == "invalid_client":
+                # A rejected registration cannot be reused. The next attempt must
+                # register again instead of trapping the user in the same failure.
+                self.storage.document.client_info = None
+                self.storage.document.tokens = None
+                self.storage.document.expires_at = None
+                await self.storage.save()
+            reasons = {
+                "invalid_client": "The provider rejected the registered client.",
+                "invalid_grant": "The authorization code expired or did not match this sign-in.",
+                "invalid_scope": "The provider rejected the requested permissions.",
+                "invalid_request": "The provider rejected the token request.",
+                "unauthorized_client": "This client is not authorized for this provider.",
+            }
+            raise DesktopOAuthFailure(
+                reasons.get(code, "The provider rejected the token exchange.")
+                + f" (HTTP {response.status_code}). Try signing in again."
+            )
+        await super()._handle_token_response(response)
+
+
+class RuntimeOAuth(DesktopConnectorOAuth):
     """Surface a required interactive login without prompting from a tool call."""
 
     def __init__(self, storage, upstreams, key):
@@ -64,19 +111,37 @@ class DesktopOAuth:
         self.expected_states: dict[str, str] = {}
         self.tasks: dict[str, asyncio.Task] = {}
         self.results: dict[str, str] = getattr(upstreams, "authentication_status", {})
+        self.errors: dict[str, str] = {}
 
-    async def begin(self, key: str, client_id: str = "") -> dict:
+    async def begin(self, key: str, client_id: str = "", scopes: str | None = None) -> dict:
         server = self.upstreams.state.data["servers"][key]
         if server["transport"] != "http" or urlsplit(server["url"]).scheme != "https":
             raise ValueError("Browser sign-in requires an HTTPS connector")
         if key in self.tasks and not self.tasks[key].done():
             raise ValueError("Browser sign-in is already in progress")
-        nonce = secrets.token_urlsafe(32)
+        if scopes is not None:
+            if not isinstance(scopes, str):
+                raise ValueError("OAuth scopes must be a space-separated string")
+            server["oauth_scopes"] = " ".join(scopes.split())
+            self.upstreams.state.save()
+        # Registration binds the client to this URI. State remains fresh per attempt;
+        # the path must survive retries and application restarts.
+        nonce = key
+        redirect_uri = f"{self.upstreams.origin}/desktop/oauth/callback/{nonce}"
         callback = asyncio.get_running_loop().create_future()
         redirect = asyncio.get_running_loop().create_future()
         self.callbacks[nonce] = callback
         storage = KeychainOAuthStorage(self.upstreams.vault, key, server["url"])
         await storage.load()
+        registered = storage.document.client_info
+        if registered and registered.redirect_uris and (
+            redirect_uri not in {str(uri) for uri in registered.redirect_uris}
+            or registered.token_endpoint_auth_method not in {None, "none"}
+        ):
+            storage.document.client_info = None
+            storage.document.tokens = None
+            storage.document.expires_at = None
+            await storage.save()
         if client_id:
             storage.document.client_info = OAuthClientInformationFull(
                 client_id=client_id
@@ -94,9 +159,10 @@ class DesktopOAuth:
             async with asyncio.timeout(300):
                 return await callback
 
-        auth = ConnectorOAuth(
+        auth = DesktopConnectorOAuth(
             storage,
-            redirect_uri=f"{self.upstreams.origin}/desktop/oauth/callback/{nonce}",
+            requested_scope=server.get("oauth_scopes", ""),
+            redirect_uri=redirect_uri,
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
         )
@@ -113,8 +179,9 @@ class DesktopOAuth:
                 self.results[key] = "signed_in"
                 if not redirect.done():
                     redirect.set_result("")
-            except Exception:  # noqa: BLE001 - boundary redacts upstream and vault secrets
+            except Exception as exc:  # noqa: BLE001 - never expose upstream exception text
                 self.results[key] = "failed"
+                self.errors[key] = self.failure_message(exc)
                 if not redirect.done():
                     redirect.set_exception(ValueError("Browser sign-in failed"))
             finally:
@@ -122,10 +189,36 @@ class DesktopOAuth:
                 self.expected_states.pop(nonce, None)
 
         self.results[key] = "pending"
+        self.errors.pop(key, None)
         self.tasks[key] = asyncio.create_task(authorize())
         async with asyncio.timeout(30):
             url = await asyncio.shield(redirect)
         return {"url": url, "status": self.results.get(key, "pending")}
+
+    @staticmethod
+    def failure_message(exc: BaseException) -> str:
+        # Provider errors can contain tokens and callback URLs. Expose only known
+        # categories, including errors wrapped by transport task groups.
+        if isinstance(exc, DesktopOAuthFailure):
+            return str(exc)
+        if isinstance(exc, BaseExceptionGroup):
+            return DesktopOAuth.failure_message(exc.exceptions[0])
+        if exc.__cause__ is not None:
+            return DesktopOAuth.failure_message(exc.__cause__)
+        if type(exc).__name__ == "MCPError" and str(exc).startswith("App is not enabled for Slack MCP server access."):
+            return "Enable Slack MCP Server under Agents in your Slack app settings, then retry sign-in."
+        if type(exc).__name__ == "OAuthFlowError" and str(exc).startswith("Protected resource "):
+            return "The provider advertises a different MCP endpoint. Use its canonical endpoint URL in Edit connection, then sign in again."
+        messages = {
+            "OAuthTokenError": "The provider rejected the token exchange. Try signing in again.",
+            "OAuthRegistrationError": "This provider requires a registered OAuth client. Enter its client ID in Connection settings.",
+            "OAuthFlowError": "The provider's OAuth response could not be validated. Try signing in again.",
+            "TimeoutError": "Browser sign-in timed out. Return to Connection settings and try again.",
+            "ConnectError": "Could not reach the provider. Check your connection and try again.",
+            "ReadTimeout": "The provider took too long to respond. Try signing in again.",
+            "ValidationError": "The provider returned an unsupported sign-in or tool response.",
+        }
+        return messages.get(type(exc).__name__, "Sign-in or tool discovery failed. Try again in Connection settings.")
 
     async def callback(self, request):
         future = self.callbacks.get(request.path_params["nonce"])
@@ -166,7 +259,7 @@ class DesktopOAuth:
         storage.document.expires_at = time.time() - 1
         await storage.save()
         async with Client(
-            StreamableHttpTransport(server["url"], auth=ConnectorOAuth(storage))
+            StreamableHttpTransport(server["url"], auth=DesktopConnectorOAuth(storage))
         ) as client:
             await client.list_tools()
         await self.upstreams.start(key, server)
@@ -179,6 +272,7 @@ class DesktopOAuth:
             await asyncio.gather(task, return_exceptions=True)
         self.upstreams.vault.delete(f"python:oauth:{key}")
         self.results.pop(key, None)
+        self.errors.pop(key, None)
 
     async def logout(self, key):
         await self.forget(key)

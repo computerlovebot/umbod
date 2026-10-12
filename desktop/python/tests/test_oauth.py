@@ -16,6 +16,141 @@ from umbod.core.connectors.downstream_mcp.adapters.fastmcp.oauth import (
 from umbod_desktop.oauth import DesktopOAuth, KeychainOAuthStorage
 
 
+async def test_explicit_scopes_limit_browser_request_after_discovery():
+    from urllib.parse import urlsplit
+
+    from mcp.client.auth import AuthorizationCodeResult
+
+    from umbod_desktop.models import DesktopServer
+    from umbod_desktop.oauth import DesktopConnectorOAuth
+
+    query = {}
+
+    async def redirect(url):
+        query.update(parse_qs(urlsplit(url).query))
+
+    async def callback():
+        return AuthorizationCodeResult(code="fixture", state=query["state"][0])
+
+    auth = DesktopConnectorOAuth(
+        KeychainOAuthStorage(MemoryVault(), "scope", "https://tools.example/mcp"),
+        requested_scope="channels:read search:read.public",
+        redirect_handler=redirect, callback_handler=callback,
+    )
+    auth.context.client_info = OAuthClientInformationFull(client_id="fixture")
+    auth.context.client_metadata.scope = "channels:read chat:write files:write"
+    await auth._perform_authorization()
+    assert query["scope"] == ["channels:read search:read.public"]
+    assert query["code_challenge_method"] == ["S256"]
+    saved = DesktopServer.model_validate({
+        "name": "Fixture", "transport": "http", "url": "https://tools.example/mcp",
+        "oauth": True, "oauth_scopes": query["scope"][0],
+    }).model_dump()
+    assert DesktopServer.model_validate(saved).oauth_scopes == query["scope"][0]
+
+
+async def test_retry_reuses_registered_callback_and_migrates_old_uri(monkeypatch):
+    from umbod_desktop import oauth as module
+
+    vault = MemoryVault()
+    storage = KeychainOAuthStorage(vault, "fixture", "https://tools.example/mcp")
+    storage.document.client_info = OAuthClientInformationFull(
+        client_id="old", redirect_uris=["http://127.0.0.1:8000/desktop/oauth/callback/old"]
+    )
+    await storage.save()
+    registrations = []
+    redirects = []
+
+    class Client:
+        def __init__(self, auth):
+            self.auth = auth
+
+        async def __aenter__(self):
+            info = self.auth.storage.document.client_info
+            uri = str(self.auth.context.client_metadata.redirect_uris[0])
+            redirects.append(uri)
+            if info is None:
+                registrations.append(uri)
+                await self.auth.storage.set_client_info(
+                    OAuthClientInformationFull(client_id="new", redirect_uris=[uri])
+                )
+            await self.auth.context.redirect_handler("https://tools.example/auth?state=fresh")
+            await self.auth.context.callback_handler()
+            return self
+
+        async def list_tools(self):
+            return []
+
+        async def __aexit__(self, *_):
+            pass
+
+    async def start(*_):
+        pass
+
+    upstreams = SimpleNamespace(
+        vault=vault, origin="http://127.0.0.1:8000", start=start,
+        state=SimpleNamespace(data={"servers": {"fixture": {
+            "transport": "http", "url": "https://tools.example/mcp"
+        }}}, save=lambda: None),
+    )
+    monkeypatch.setattr(module, "StreamableHttpTransport", lambda url, auth: auth)
+    monkeypatch.setattr(module, "Client", Client)
+    oauth = DesktopOAuth(upstreams)
+    for _ in range(2):
+        await oauth.begin("fixture")
+        oauth.callbacks["fixture"].set_result(None)
+        await oauth.tasks["fixture"]
+        assert oauth.results["fixture"] == "signed_in"
+    assert redirects == ["http://127.0.0.1:8000/desktop/oauth/callback/fixture"] * 2
+    assert registrations == redirects[:1]
+
+
+def test_failure_messages_do_not_expose_provider_secrets():
+    from mcp.client.auth.exceptions import OAuthTokenError
+
+    error = ExceptionGroup("secret", [OAuthTokenError("access_token=secret")])
+    message = DesktopOAuth.failure_message(error)
+    assert "token exchange" in message
+    assert "secret" not in message
+
+
+async def test_exact_issuer_survives_discovery_and_keychain_round_trip():
+    from mcp.client.auth.utils import validate_authorization_response_iss
+
+    from umbod_desktop.oauth import DesktopConnectorOAuth
+
+    storage = KeychainOAuthStorage(MemoryVault(), "issuer", "https://tools.example/mcp")
+    auth = DesktopConnectorOAuth(storage)
+    assert auth.context.client_metadata.token_endpoint_auth_method == "none"
+    await auth._handle_oauth_metadata_response(httpx2.Response(200, json={
+        "issuer": "https://tools.example",
+        "authorization_endpoint": "https://tools.example/authorize",
+        "token_endpoint": "https://tools.example/token",
+        "response_types_supported": ["code"],
+        "authorization_response_iss_parameter_supported": True,
+    }))
+    validate_authorization_response_iss("https://tools.example", auth.context.oauth_metadata)
+    await storage.load()
+    validate_authorization_response_iss("https://tools.example", storage.document.metadata)
+    with pytest.raises(Exception, match="mismatch"):
+        validate_authorization_response_iss("https://other.example", storage.document.metadata)
+
+
+@pytest.mark.parametrize("provider_error", ["invalid_client", {"token": "secret"}])
+async def test_token_failure_exposes_only_safe_category(provider_error):
+    from umbod_desktop.oauth import DesktopConnectorOAuth, DesktopOAuthFailure
+
+    auth = DesktopConnectorOAuth(
+        KeychainOAuthStorage(MemoryVault(), "failure", "https://tools.example/mcp")
+    )
+    with pytest.raises(DesktopOAuthFailure) as caught:
+        await auth._handle_token_response(httpx2.Response(400, json={
+            "error": provider_error, "error_description": "access_token=secret",
+        }))
+    assert "HTTP 400" in str(caught.value)
+    assert "secret" not in str(caught.value)
+
+
 async def test_keychain_refresh_is_serialized_persistent_and_cannot_resurrect_logout():
     vault = MemoryVault()
     storage = KeychainOAuthStorage(vault, "fixture", "https://tools.example/mcp")
