@@ -296,6 +296,8 @@ struct ServerEditor: View {
 struct ConnectionView: View {
     @EnvironmentObject var model: AppModel
     @State private var copying = false
+    @State private var copied: String?
+    @State private var copyRevision = UUID()
     private var configuration: String { (try? ClientConfiguration.bridge(bundlePath: Bundle.main.bundlePath, environment: .current, executable: model.dataDirectory == nil ? AppEnvironment.current.gatewayExecutable : nil)) ?? "" }
     private var endpoint: String { "http://\(model.backend.gateway)/mcp" }
     private var command: String {
@@ -314,7 +316,7 @@ struct ConnectionView: View {
                 Text("bridge --profile \(AppEnvironment.current.rawValue)").font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
             }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Brand.soft, in: RoundedRectangle(cornerRadius: 8))
-            Button(copying ? "Copying…" : "Copy configuration") { copyConfiguration() }
+            Button { copyConfiguration() } label: { copyLabel("Copy configuration", target: "configuration") }
                 .buttonStyle(BrandButtonStyle(primary: true)).disabled(copying)
         }
         Panel {
@@ -323,7 +325,7 @@ struct ConnectionView: View {
             HStack {
                 Text(endpoint).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button("Copy URL") { model.copy(endpoint, message: "MCP URL copied.") }
+                Button { copy(endpoint, target: "url") } label: { copyLabel("Copy URL", target: "url") }
                     .disabled(!model.online)
             }.padding(12).background(Brand.soft, in: RoundedRectangle(cornerRadius: 8))
             HStack {
@@ -334,11 +336,32 @@ struct ConnectionView: View {
                         .accessibilityLabel("Connection token hidden")
                 }
                 Spacer()
-                Button("Copy token") { copyConfiguration(token: true) }.disabled(copying)
+                Button { copyConfiguration(token: true) } label: { copyLabel("Copy token", target: "token") }.disabled(copying)
             }
             Text("This secret lets your agent use the tools you enable in Umbod.").font(.caption).foregroundStyle(Brand.muted)
         }
+        .task(id: copyRevision) {
+            guard copied != nil else { return }
+            do { try await Task.sleep(for: .seconds(2)); copied = nil }
+            catch { /* A newer copy or navigation cancels the old feedback. */ }
+        }
+        .onDisappear { copied = nil }
         .task { do { _ = try await model.backend.request(["action": "connection_setup"]) } catch { if !Task.isCancelled { model.error = error.localizedDescription } } }
+    }
+    private func copyLabel(_ title: String, target: String) -> some View {
+        ZStack {
+            Text(title).hidden()
+            Text(copied == target ? "Copied" : title)
+        }
+    }
+    private func copy(_ value: String, target: String) {
+        NSPasteboard.general.clearContents()
+        guard NSPasteboard.general.setString(value, forType: .string) else {
+            model.error = "Couldn’t copy. Try again."
+            return
+        }
+        copied = target
+        copyRevision = UUID()
     }
     private func copyConfiguration(token: Bool = false) {
         Task {
@@ -348,8 +371,8 @@ struct ConnectionView: View {
                 _ = try await model.backend.request(["action": "connection_setup"])
                 if token {
                     let value = try await model.backend.request(["action": "connection_token"])
-                    if let credential = value["token"] as? String { model.copy(credential, message: "Token copied.") }
-                } else { model.copy(configuration, message: "Configuration copied.") }
+                    if let credential = value["token"] as? String { copy(credential, target: "token") }
+                } else { copy(configuration, target: "configuration") }
             } catch { model.error = error.localizedDescription }
         }
     }
