@@ -84,8 +84,11 @@ class DesktopAgentVerifier(TokenVerifier):
 class LoopbackAuthentication:
     """Protect every host route, including health and internal system routes."""
 
-    def __init__(self, app: ASGIApp, token: str) -> None:
+    def __init__(
+        self, app: ASGIApp, token: str, forward_authorization: bool = True
+    ) -> None:
         self.app, self.token = app, token
+        self.forward_authorization = forward_authorization
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -103,4 +106,13 @@ class LoopbackAuthentication:
                 scope, receive, send
             )
             return
+        if not self.forward_authorization:
+            scope = {
+                **scope,
+                "headers": [
+                    (name, value)
+                    for name, value in scope.get("headers", [])
+                    if name.lower() != b"authorization"
+                ],
+            }
         await self.app(scope, receive, send)

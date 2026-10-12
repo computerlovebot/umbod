@@ -44,13 +44,26 @@ class KeychainOAuthStorage(ConnectorOAuthStorage):
         self.expected_value = value
 
 
+class RuntimeOAuth(ConnectorOAuth):
+    """Surface a required interactive login without prompting from a tool call."""
+
+    def __init__(self, storage, upstreams, key):
+        super().__init__(storage)
+        self.upstreams, self.key = upstreams, key
+
+    async def _perform_authorization(self):
+        self.upstreams.authentication_status[self.key] = "sign_in_required"
+        self.upstreams.state.save()
+        raise SignInRequired()
+
+
 class DesktopOAuth:
     def __init__(self, upstreams) -> None:
         self.upstreams = upstreams
         self.callbacks: dict[str, asyncio.Future] = {}
         self.expected_states: dict[str, str] = {}
         self.tasks: dict[str, asyncio.Task] = {}
-        self.results: dict[str, str] = {}
+        self.results: dict[str, str] = getattr(upstreams, "authentication_status", {})
 
     async def begin(self, key: str, client_id: str = "") -> dict:
         server = self.upstreams.state.data["servers"][key]
@@ -171,6 +184,7 @@ class DesktopOAuth:
         await self.forget(key)
         server = self.upstreams.state.data["servers"][key]
         server["oauth"] = False
+        self.results[key] = "sign_in_required"
         self.upstreams.state.save()
         await self.upstreams.start(key, server)
 

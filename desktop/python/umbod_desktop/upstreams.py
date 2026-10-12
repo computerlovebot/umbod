@@ -4,6 +4,7 @@ import asyncio
 import sys
 from uuid import uuid4
 
+import httpx2
 from fastmcp.client.transports import StdioTransport, StreamableHttpTransport
 from fastmcp.server import create_proxy
 from starlette.responses import JSONResponse
@@ -52,6 +53,12 @@ class DesktopUpstreams:
         self.state, self.vault, self.token, self.origin = state, vault, token, origin
         self.apps: dict[str, object] = {}
         self.lifetimes: dict[str, ProxyLifetime] = {}
+        self.authentication_status = {
+            key: value
+            for key, value in state.data.get("authentication_status", {}).items()
+            if value in ("sign_in_required", "signed_out")
+        }
+        state.data["authentication_status"] = self.authentication_status
 
     async def start(self, key: str, server: dict) -> None:
         headers = {
@@ -72,13 +79,35 @@ class DesktopUpstreams:
         elif server["transport"] == "http":
             auth = None
             if server.get("oauth"):
-                from .oauth import ConnectorOAuth, KeychainOAuthStorage
+                from .oauth import KeychainOAuthStorage, RuntimeOAuth
 
-                auth = ConnectorOAuth(
-                    KeychainOAuthStorage(self.vault, key, server["url"])
+                auth = RuntimeOAuth(
+                    KeychainOAuthStorage(self.vault, key, server["url"]), self, key
                 )
+
+            async def observe_response(response):
+                if str(response.request.url).rstrip("/") != server["url"].rstrip("/"):
+                    return
+                status = None
+                if response.status_code == 401:
+                    status = "sign_in_required"
+                elif response.status_code == 200:
+                    status = "signed_in" if server.get("oauth") else "signed_out"
+                if status and self.authentication_status.get(key) != status:
+                    self.authentication_status[key] = status
+                    self.state.save()
+
+            def http_client(**kwargs):
+                kwargs.setdefault("timeout", httpx2.Timeout(30.0, read=300.0))
+                return httpx2.AsyncClient(
+                    **kwargs, event_hooks={"response": [observe_response]}
+                )
+
             transport = StreamableHttpTransport(
-                server["url"], headers=headers, auth=auth
+                server["url"],
+                headers=headers,
+                auth=auth,
+                httpx_client_factory=http_client,
             )
         else:
             raise ValueError("Unsupported connector transport")
@@ -92,7 +121,7 @@ class DesktopUpstreams:
         lifetime = ProxyLifetime(app)
         await lifetime.start()
         old = self.lifetimes.pop(key, None)
-        self.apps[key] = LoopbackAuthentication(app, self.token)
+        self.apps[key] = LoopbackAuthentication(app, self.token, forward_authorization=False)
         self.lifetimes[key] = lifetime
         if old:
             await old.aclose()
