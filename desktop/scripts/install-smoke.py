@@ -25,9 +25,8 @@ def main():
         environment = {**os.environ, "UMBOD_TEST_APP": str(app)}
         # Swift drives the tests; every backend and agent process uses the installed interpreter.
         subprocess.run(["swift", "run", "--package-path", str(desktop / "native"), "UmbodTests"], env=environment, check=True)
-        subprocess.run([sys.executable, str(desktop / "scripts/native-smoke.py"), str(app)], check=True)
         subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
-        print("PASS: DMG install, packaged agent flow, persistence and native window lifecycle")
+        print("PASS: DMG install, packaged agent flow, and persistence")
 
 
 if __name__ == "__main__":

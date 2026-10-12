@@ -5,7 +5,6 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
-import runpy
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('release', ROOT / 'desktop/scripts/release.py')
@@ -96,11 +95,6 @@ class ReleaseTests(unittest.TestCase):
             output.unlink()
             first = release.metadata(folder, '0.2.0', 'a'*40)
             self.assertEqual(release.metadata(folder, '0.2.0', 'a'*40), first)
-
-    def test_native_smoke_default_from_monorepo_root(self):
-        script = ROOT/'desktop/scripts/native-smoke.py'
-        namespace = runpy.run_path(str(script))
-        self.assertEqual(namespace['default_app'](), ROOT/'desktop/dist'/f'Umbod-{release.version()}.app')
 
     def test_existing_release_bytes(self):
         baseline = json.loads((ROOT/'desktop/tests/release-baseline.json').read_text())

@@ -13,7 +13,7 @@ The SwiftUI app keeps its native screens. `AdministrationClient.swift` maps the 
 - `storage.py`, `usage.py`: owner-only atomic host metadata and aggregate call counts, without arguments or results. Shared connectors and encrypted configuration live in `backend.sqlite3`.
 - `client_setup.py`: consented configuration previews, conflict detection and byte-preserving backup restoration.
 - `testing.py`: explicitly selected fixture credentials, restricted to owned `umbod-test-*` directories under the system temporary directory. This is never a fallback for unavailable Keychain access; normal profiles always use Keychain.
-- `tests/`: real HTTP/stdio MCP calls, default-deny and live revocation, resumable import, authentication isolation, OAuth refresh/callback races and safe client-file editing. Native tests additionally exercise the packaged interpreter, an explicit disposable fixture vault and persistent-process reattachment. Routine tests never open the user’s Keychain. The window smoke test uses a disposable bundle identity so it also avoids sharing the user’s window-restoration preferences.
+- `tests/`: real HTTP/stdio MCP calls, default-deny and live revocation, resumable import, authentication isolation, OAuth refresh/callback races and safe client-file editing. Native tests additionally exercise the packaged interpreter, an explicit disposable fixture vault and persistent-process reattachment. Routine tests never open the user’s Keychain. Automated native UI and window-lifecycle tests are currently removed.
 
 ## Shared backend extension points
 

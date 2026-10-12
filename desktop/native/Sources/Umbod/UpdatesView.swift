@@ -17,8 +17,8 @@ import UmbodCore
         automatic = defaults.object(forKey: "updates.automatic") as? Bool ?? (AppEnvironment.current == .release)
     }
     func monitor() async {
-        // Isolated native smoke tests never contact the update service.
-        guard !CommandLine.arguments.contains("--test-credentials"), !CommandLine.arguments.contains("--smoke-report") else { return }
+        // App sessions using fixture credentials never contact the update service.
+        guard !CommandLine.arguments.contains("--test-credentials") else { return }
         while !Task.isCancelled {
             await check(manual: false)
             do { try await Task.sleep(for: .seconds(3600)) } catch { return }

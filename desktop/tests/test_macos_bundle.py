@@ -54,4 +54,4 @@ Load command 3
         self.assertIn('macos-acceptance-kit', job)
         runner = (SCRIPT.parent / 'accept-macos-artifact.sh').read_text()
         self.assertNotIn('swift run', runner)
-        self.assertIn('--release-identity', runner)
+        self.assertIn('UMBOD_TEST_APP="$APP"', runner)

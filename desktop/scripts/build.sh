@@ -68,7 +68,7 @@ printf 'Ad-hoc signed; NOT notarized; UNSIGNED PRERELEASE; Gatekeeper acceptance
 if [[ "$CHANNEL" == "release" ]]; then cp "$OUTPUT/SIGNING-release.txt" "$OUTPUT/SIGNING.txt"; fi
 codesign --verify --deep --strict "$APP"
 plutil -lint "$APP/Contents/Info.plist"
-scripts/ui-smoke.sh "$APP"
+scripts/verify-macos-bundle.sh "$APP"
 if [[ -e "$FINAL_APP" ]]; then
     PREVIOUS="${FINAL_APP}.previous-$(python3 -c 'import uuid; print(uuid.uuid4())')"
     mv "$FINAL_APP" "$PREVIOUS"

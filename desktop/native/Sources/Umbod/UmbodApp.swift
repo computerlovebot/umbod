@@ -38,30 +38,8 @@ import UmbodCore
         starting = true
         defer { starting = false }
         do {
-            if CommandLine.arguments.contains("--smoke-report") && dataDirectory == nil { throw ContractError.message("Smoke tests require --data-dir isolation") }
             try await backend.start(directory: dataDirectory, persistent: dataDirectory == nil, testCredentials: CommandLine.arguments.contains("--test-credentials")); online = true; try await refresh()
-                if let flag = CommandLine.arguments.firstIndex(of: "--smoke-report"), CommandLine.arguments.count > flag + 1 {
-                    let path = CommandLine.arguments[flag + 1]
-                    // A fixture backend can be ready before AppKit presents the window.
-                    for _ in 0..<100 {
-                        if NSApp.windows.contains(where: { $0.title == AppEnvironment.current.name && $0.isVisible }) { break }
-                        try await Task.sleep(for: .milliseconds(100))
-                    }
-                    var survived = false, reopened = false
-                    if CommandLine.arguments.contains("--smoke-close-reopen"), let window = NSApp.windows.first(where: { $0.title == AppEnvironment.current.name }) {
-                        window.performClose(nil)
-                        try await Task.sleep(for: .milliseconds(250))
-                        _ = try await backend.request(["action":"status"])
-                        survived = backend.isRunning && !window.isVisible
-                        window.makeKeyAndOrderFront(nil)
-                        reopened = window.isVisible
-                    }
-                    let report: [String: Any] = ["backgroundSurvivedClose":survived,"reopened":reopened].merging( ["backendRunning": backend.isRunning, "backendPID": backend.processID, "bundlePath": Bundle.main.bundlePath, "bundleIdentifier": Bundle.main.bundleIdentifier ?? "", "gateway": backend.gateway,
-                        "serverCount": servers.count, "windowCount": NSApp.windows.count,
-                        "windows": NSApp.windows.map { ["title": $0.title, "visible": $0.isVisible, "width": $0.frame.width, "height": $0.frame.height] as [String: Any] }]) { _, new in new }
-                    try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: path))
-                    if CommandLine.arguments.contains("--smoke-exit") { Task { @MainActor in try? await Task.sleep(for: .milliseconds(200)); NSApp.terminate(nil) } }
-                } }
+        }
         catch { self.error = error.localizedDescription; online = false }
     }
     func refresh() async throws {

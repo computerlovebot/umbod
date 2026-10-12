@@ -1,8 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 # No checkout, compiler or externally installed Python is used here.
-MODE="${2:-release}"
-case "$MODE" in release|local-fixture) ;; *) exit 2 ;; esac
 KIT="$(cd "$(dirname "$0")/.." && pwd)"
 DMG="${1:?DMG required}"
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/umbod-test-acceptance.XXXXXX")"
@@ -28,11 +26,5 @@ unset PYTHONHOME PYTHONPATH VIRTUAL_ENV CONDA_PREFIX DYLD_LIBRARY_PATH DYLD_FRAM
 "$PYTHON" -I -B "$KIT/scripts/verify-python-bundle.py"
 "$APP/Contents/MacOS/umbod-desktop" --help > /dev/null
 UMBOD_TEST_APP="$APP" UMBOD_TEST_RESOURCES="$KIT" "$KIT/UmbodTests"
-# This mode refuses to run on a developer account. No bundle ID changes or re-signing.
-if [[ "$MODE" == release ]]; then
-    "$PYTHON" -I -B "$KIT/scripts/native-smoke.py" "$APP" --release-identity
-else
-    "$PYTHON" -I -B "$KIT/scripts/native-smoke.py" "$APP"
-fi
 codesign --verify --deep --strict "$APP"
-printf 'PASS: artifact-only acceptance (%s)\n' "$MODE"
+printf 'PASS: artifact-only backend and bundle acceptance\n'

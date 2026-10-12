@@ -6,7 +6,7 @@ Desktop is versioned independently of chart, images and SDK. Update `desktop/VER
 
 1. Resolve the source-license and dependency-notice blockers in [provenance](PROVENANCE.md), review the changes, and merge through the normal process. Do not copy historical personal docs or evidence.
 2. Configure the GitHub `desktop-release` environment with required reviewers and a deployment branch rule permitting only `main`. The workflow also validates repository, ref, event, version, rights attestation, and exact confirmation. No signing secret is required for unsigned builds. No credentials belong in website code or manifests.
-3. Run native desktop CI on the reviewed source. PR/push CI only uploads artifacts and has read-only permissions. macOS builds use an Apple Silicon runner and Swift 6. The Mac artifact-only acceptance job must also pass: it uses the exact DMG, no checkout or compiler, and an unchanged release app launched through LaunchServices on a fresh hosted runner. Automated click-through UI tests are currently removed; verify connector creation/editing, tool enablement, browser sign-in, refresh, and persistence manually.
+3. Run native desktop CI on the reviewed source. PR/push CI only uploads artifacts and has read-only permissions. macOS builds use an Apple Silicon runner and Swift 6. The Mac artifact-only acceptance job must also pass: it uses the exact DMG, no checkout or compiler, and the packaged backend and Swift contract harness on a fresh hosted runner. Automated click-through and window-lifecycle UI tests are currently removed; verify connector creation/editing, tool enablement, browser sign-in, refresh, and persistence manually.
 4. From `main`, explicitly dispatch **Desktop manual prerelease** with version `X.Y.Z`, mode `unsigned-prerelease`, rights confirmation enabled, and confirmation text `release desktop-vX.Y.Z unsigned-prerelease`. The workflow rebuilds/tests the dispatch SHA. It creates a new desktop tag, an explicitly UNSIGNED GitHub prerelease, versioned assets, release notes, SHA256SUMS and desktop-downloads.json. It never promotes repository-wide latest or overwrites existing tags/releases/assets.
 5. Download the `website-manifest-update` artifact and follow [APPLY-MANIFEST.md](APPLY-MANIFEST.md). This is a PR-ready file tree; publication does not automatically edit or deploy the website.
 
@@ -34,7 +34,7 @@ Release notes and website labels must change only after that verified path exist
 
 ## Unsigned first-launch rehearsal
 
-Artifact-only CI checks application behavior and ad-hoc signature integrity. It does not claim notarization or browser/Gatekeeper acceptance. Before recommending an unsigned candidate, use a fresh Apple Silicon Mac account or a reset macOS VM:
+Artifact-only CI checks backend behavior, bundle integrity, and ad-hoc signatures. Native UI behavior requires manual verification. It does not claim notarization or browser/Gatekeeper acceptance. Before recommending an unsigned candidate, use a fresh Apple Silicon Mac account or a reset macOS VM:
 
 1. Download the exact candidate DMG through Safari so quarantine is applied. Record its SHA-256, app version, source commit and macOS version with the release evidence.
 2. Open the DMG, drag Umbod to Applications, eject the DMG, and open the installed app through Finder. Expect the unsigned-app warning; verify the system’s per-app Open Anyway flow works. Do not disable Gatekeeper or remove quarantine as a workaround.
