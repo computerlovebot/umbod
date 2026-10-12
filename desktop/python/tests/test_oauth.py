@@ -16,6 +16,36 @@ from umbod.core.connectors.downstream_mcp.adapters.fastmcp.oauth import (
 from umbod_desktop.oauth import DesktopOAuth, KeychainOAuthStorage
 
 
+async def test_fresh_authorization_keeps_saved_tokens_and_hosted_identity():
+    from umbod_desktop.oauth import (
+        CLIENT_METADATA_URL,
+        DesktopConnectorOAuth,
+        RuntimeOAuth,
+    )
+
+    vault = MemoryVault()
+    storage = KeychainOAuthStorage(vault, "fixture", "https://tools.example/mcp")
+    storage.document.client_info = OAuthClientInformationFull(client_id=CLIENT_METADATA_URL)
+    storage.document.tokens = OAuthToken(access_token="existing", token_type="Bearer", scope="read write")
+    await storage.save()
+    auth = DesktopConnectorOAuth(storage, requested_scope="read", force_authorization=True)
+    await auth._initialize()
+    assert auth.context.current_tokens is None
+    assert auth.context.client_metadata_url == CLIENT_METADATA_URL
+    await storage.load()
+    assert storage.document.tokens.access_token == "existing"
+    runtime = RuntimeOAuth(storage, SimpleNamespace(), "fixture")
+    await runtime._initialize()
+    assert runtime.context.current_tokens.access_token == "existing"
+    assert runtime.context.client_metadata_url == CLIENT_METADATA_URL
+    await auth._handle_token_response(httpx2.Response(200, json={
+        "access_token": "replacement", "token_type": "Bearer", "scope": "read",
+    }))
+    await auth._initialize()
+    assert auth.context.current_tokens.access_token == "replacement"
+    assert auth.token_received
+
+
 async def test_explicit_scopes_limit_browser_request_after_discovery():
     from urllib.parse import urlsplit
 
@@ -103,6 +133,16 @@ async def test_retry_reuses_registered_callback_and_migrates_old_uri(monkeypatch
         assert oauth.results["fixture"] == "signed_in"
     assert redirects == ["http://127.0.0.1:8000/desktop/oauth/callback/fixture"] * 2
     assert registrations == redirects[:1]
+    await oauth.begin("fixture")
+    await oauth.cancel("fixture")
+    assert oauth.results["fixture"] == "cancelled"
+    assert not oauth.callbacks
+    assert not oauth.expected_states
+    await storage.load()
+    assert storage.document.client_info.client_id == "new"
+    details = await oauth.details("fixture")
+    assert details["stage"] == "cancelled"
+    assert "fresh" not in str(details["diagnostics"])
 
 
 def test_failure_messages_do_not_expose_provider_secrets():
@@ -362,3 +402,19 @@ async def test_http_challenge_and_success_update_connection_status(tmp_path):
             await upstreams.close()
             server.should_exit = True
             await task
+
+
+async def test_shared_callback_routes_only_matching_state():
+    oauth = DesktopOAuth(SimpleNamespace())
+    first = asyncio.get_running_loop().create_future()
+    second = asyncio.get_running_loop().create_future()
+    oauth.callbacks.update(first=first, second=second)
+    oauth.expected_states.update(first="state-one", second="state-two")
+    request = Request({
+        "type": "http", "method": "GET", "path": "/desktop/oauth/callback",
+        "path_params": {}, "query_string": b"code=fixture&state=state-two", "headers": [],
+    })
+    assert (await oauth.callback(request)).status_code == 200
+    assert not first.done()
+    assert second.result().code == "fixture"
+    assert (await oauth.callback(request)).status_code == 400

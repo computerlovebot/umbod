@@ -62,7 +62,8 @@ async def create_desktop_app(
     oauth = DesktopOAuth(upstreams)
     client_setup = ClientSetup(state, directory, profile)
     callbacks = Starlette(
-        routes=[Route("/desktop/oauth/callback/{nonce}", oauth.callback)]
+        routes=[Route("/desktop/oauth/callback/{nonce}", oauth.callback),
+        Route("/desktop/oauth/callback", oauth.callback)]
     )
     api = create_app(settings, admin_verifier=DesktopAdminVerifier(admin_token))
     migration = DesktopMigration(directory, state, upstreams, api, admin_token)
@@ -84,6 +85,7 @@ async def create_desktop_app(
     async def lifespan(app):
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(api.router.lifespan_context(api))
+            await migration.tool_names.repair(state)
             await stack.enter_async_context(mcp.router.lifespan_context(mcp))
             await upstreams.restore()
             stack.push_async_callback(upstreams.close)
@@ -120,7 +122,7 @@ async def create_desktop_app(
 
     @host.get("/desktop/state")
     async def desktop_state():
-        return {**state.data, "oauth_status": oauth.results, "oauth_errors": oauth.errors}
+        return {**state.data, "oauth_status": oauth.results, "oauth_errors": oauth.errors, "oauth_stages": oauth.stages}
 
     @host.post("/desktop/upstreams")
     async def prepare(request: Request):
@@ -216,9 +218,18 @@ async def create_desktop_app(
             key = body["id"].removeprefix("pending:")
             if key not in state.data["servers"]:
                 key = None
-        if action in ("oauth_begin", "oauth_refresh", "oauth_logout"):
+        if action in ("oauth_begin", "oauth_refresh", "oauth_logout", "oauth_cancel", "oauth_details", "oauth_discover"):
             if key is None:
                 raise HTTPException(404, "Connector not found")
+            if action == "oauth_discover":
+                try:
+                    return await oauth.discover(key)
+                except Exception:
+                    raise HTTPException(422, "Could not discover sign-in requirements. Check the HTTPS MCP URL or use manual sign-in options.") from None
+            if action == "oauth_cancel":
+                return await oauth.cancel(key)
+            if action == "oauth_details":
+                return await oauth.details(key)
             if action == "oauth_logout":
                 await oauth.logout(key)
                 return {"status": "signed_out"}
@@ -243,7 +254,7 @@ async def create_desktop_app(
     class Dispatcher:
         async def __call__(self, scope, receive, send):
             path = scope.get("path", "")
-            if scope["type"] == "http" and path.startswith("/desktop/oauth/callback/"):
+            if scope["type"] == "http" and (path == "/desktop/oauth/callback" or path.startswith("/desktop/oauth/callback/")):
                 await callbacks(scope, receive, send)
             elif (
                 scope["type"] == "http"
