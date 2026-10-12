@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from starlette.applications import Starlette
 from starlette.routing import Route
+from umbod.core.connectors.downstream_mcp.oauth.service import OAuthService
 from umbod.core.permissions import InMemoryGroupConnectorToolPermissions
 from umbod.mcp.public_app import (
     build_starlette_app,
@@ -21,7 +22,7 @@ from .client_setup import ClientSetup
 from .configuration import desktop_settings
 from .legacy import saved_agent_hashes
 from .migration import DesktopMigration
-from .oauth import DesktopOAuth
+from .oauth import DesktopOAuthHost, callback_transport
 from .security import (
     CredentialVault,
     DesktopAdminVerifier,
@@ -59,13 +60,14 @@ async def create_desktop_app(
         state.data["legacy_agent_hashes"] = saved_agent_hashes(directory)
     state.save()
     upstreams = DesktopUpstreams(state, vault, upstream_token, origin)
-    oauth = DesktopOAuth(upstreams)
+    oauth = OAuthService(DesktopOAuthHost(upstreams))
+    callback = callback_transport(oauth)
     client_setup = ClientSetup(state, directory, profile)
     callbacks = Starlette(
-        routes=[Route("/desktop/oauth/callback/{nonce}", oauth.callback),
-        Route("/desktop/oauth/callback", oauth.callback)]
+        routes=[Route("/desktop/oauth/callback/{nonce}", callback),
+        Route("/desktop/oauth/callback", callback)]
     )
-    api = create_app(settings, admin_verifier=DesktopAdminVerifier(admin_token))
+    api = create_app(settings, admin_verifier=DesktopAdminVerifier(admin_token), oauth_service=oauth)
     migration = DesktopMigration(directory, state, upstreams, api, admin_token)
     config = await load_configured_public_app_config(settings)
     config = replace(
@@ -122,7 +124,7 @@ async def create_desktop_app(
 
     @host.get("/desktop/state")
     async def desktop_state():
-        return {**state.data, "oauth_status": oauth.results, "oauth_errors": oauth.errors, "oauth_stages": oauth.stages}
+        return state.data
 
     @host.post("/desktop/upstreams")
     async def prepare(request: Request):
@@ -205,41 +207,6 @@ async def create_desktop_app(
                 raise HTTPException(
                     409,
                     "Agent configuration could not be updated. Check the file and preview again; any saved backup is preserved.",
-                ) from None
-        key = next(
-            (
-                key
-                for key, server in state.data["servers"].items()
-                if server.get("id") == body.get("id")
-            ),
-            None,
-        )
-        if isinstance(body.get("id"), str) and body["id"].startswith("pending:"):
-            key = body["id"].removeprefix("pending:")
-            if key not in state.data["servers"]:
-                key = None
-        if action in ("oauth_begin", "oauth_refresh", "oauth_logout", "oauth_cancel", "oauth_details", "oauth_discover"):
-            if key is None:
-                raise HTTPException(404, "Connector not found")
-            if action == "oauth_discover":
-                try:
-                    return await oauth.discover(key)
-                except Exception:
-                    raise HTTPException(422, "Could not discover sign-in requirements. Check the HTTPS MCP URL or use manual sign-in options.") from None
-            if action == "oauth_cancel":
-                return await oauth.cancel(key)
-            if action == "oauth_details":
-                return await oauth.details(key)
-            if action == "oauth_logout":
-                await oauth.logout(key)
-                return {"status": "signed_out"}
-            try:
-                if action == "oauth_refresh":
-                    return await oauth.refresh(key)
-                return await oauth.begin(key, body.get("client_id", ""), body.get("scopes"))
-            except (ValueError, TimeoutError):
-                raise HTTPException(
-                    422, oauth.errors.get(key, "Browser sign-in failed; check the connector and retry")
                 ) from None
         if action == "diagnostics_set":
             state.data["diagnostics"] = {"enabled": bool(body.get("enabled"))}

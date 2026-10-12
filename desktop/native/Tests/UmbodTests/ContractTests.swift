@@ -105,9 +105,10 @@ import UmbodCore
         async def main():
             async with Client(StdioTransport(command=sys.argv[1], args=['bridge', 'legacy-fixture-id', '--profile', sys.argv[3], '--data-dir', sys.argv[2], '--test-credentials']), mode='legacy') as client:
                 async with asyncio.timeout(20):
-                    while not (tools := await client.list_tools()):
+                    assert {tool.name for tool in await client.list_tools()} == {'search_tools', 'execute_tool'}
+                    while not (matches := (await client.call_tool('search_tools', {'query': 'echo'})).structured_content['matches']):
                         await asyncio.sleep(.1)
-                result = await client.call_tool(tools[0].name, {'text': 'native-python-fixture'})
+                result = await client.call_tool('execute_tool', {'tool_name': matches[0]['tool_name'], 'arguments': {'text': 'native-python-fixture'}})
                 assert 'native-python-fixture' in str(result)
         asyncio.run(main())
         """, executable.path, directory.path, profile]

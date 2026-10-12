@@ -60,6 +60,10 @@ class DesktopUpstreams:
         }
         state.data["authentication_status"] = self.authentication_status
 
+    def set_authentication_status(self, key: str, status: str) -> None:
+        self.authentication_status[key] = status
+        self.state.save()
+
     async def start(self, key: str, server: dict) -> None:
         headers = {
             name: self._credential(ref)
@@ -79,20 +83,24 @@ class DesktopUpstreams:
         elif server["transport"] == "http":
             auth = None
             if server.get("oauth"):
-                from .oauth import KeychainOAuthStorage, RuntimeOAuth
+                from umbod.core.connectors.downstream_mcp.oauth.provider import (
+                    RuntimeOAuth,
+                )
+
+                from .oauth import KeychainOAuthStorage
 
                 auth = RuntimeOAuth(
-                    KeychainOAuthStorage(self.vault, key, server["url"]), self, key
+                    KeychainOAuthStorage(self.vault, key, server["url"]),
+                    lambda: self.set_authentication_status(key, "sign_in_required")
                 )
 
             async def observe_response(response):
                 if str(response.request.url).rstrip("/") != server["url"].rstrip("/"):
                     return
-                status = None
-                if response.status_code == 401:
-                    status = "sign_in_required"
-                elif response.status_code == 200:
-                    status = "signed_in" if server.get("oauth") else "signed_out"
+                from umbod.core.connectors.downstream_mcp.oauth.provider import (
+                    response_authentication_status,
+                )
+                status = response_authentication_status(response.status_code, bool(server.get("oauth")))
                 if status and self.authentication_status.get(key) != status:
                     self.authentication_status[key] = status
                     self.state.save()

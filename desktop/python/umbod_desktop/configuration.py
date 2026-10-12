@@ -28,7 +28,7 @@ def desktop_settings(directory: Path, origin: str, root_secret: str) -> AppConfi
                 "auth_mode": "none",
                 "messaging_transport": "sql",
                 "permission_group_claim": "groups",
-                "connector_tool_exposure_mode": "flat",
+                "connector_tool_exposure_mode": "gateway",
                 "downstream_oauth_enabled": True,
             },
             "admin_authentication": {

@@ -48,9 +48,10 @@ import Foundation
         var oauthStatuses: [String: String] = [:]
         var oauthErrors: [String: String] = [:]
         var oauthStages: [String: String] = [:]
-        let hostOAuthStages = host["oauth_stages"] as? [String: String] ?? [:]
-        let hostOAuthErrors = host["oauth_errors"] as? [String: String] ?? [:]
-        let hostOAuth = host["oauth_status"] as? [String: String] ?? [:]
+        let authentication = try await send("GET", "/api/admin/connectors/mcp/oauth/status")
+        let hostOAuthStages = authentication["oauth_stages"] as? [String: String] ?? [:]
+        let hostOAuthErrors = authentication["oauth_errors"] as? [String: String] ?? [:]
+        let hostOAuth = authentication["oauth_status"] as? [String: String] ?? [:]
         let permissions = try await send("GET", "/api/admin/mcp-permissions/groups/desktop-owner")
         let grants = permissions["capabilities"] as? [[String: Any]] ?? []
         let connectorGrants = Set(permissions["connector_ids"] as? [String] ?? [])
@@ -132,8 +133,8 @@ import Foundation
                 } catch {
                     // The local proxy already holds the saved connection. Keep its
                     // identity and permissions while guided setup repairs sign-in.
-                    let state = try await send("GET", "/desktop/state")
-                    let authentication = state["oauth_status"] as? [String: String] ?? [:]
+                    let oauthState = try await send("GET", "/api/admin/connectors/mcp/oauth/status")
+                    let authentication = oauthState["oauth_status"] as? [String: String] ?? [:]
                     guard authentication[hostID] == "sign_in_required" else { throw error }
                 }
             }
@@ -187,6 +188,16 @@ import Foundation
     public func action(_ body: [String: Any]) async throws -> [String: Any] {
         let id = body["id"] as? String ?? ""
         switch body["action"] as? String {
+        case "oauth_begin", "oauth_refresh", "oauth_logout", "oauth_cancel", "oauth_details", "oauth_discover":
+            let operation = String((body["action"] as? String ?? "").dropFirst(6))
+            let path = "/api/admin/connectors/mcp/oauth/" + component(id)
+            if operation == "details" { return try await send("GET", path) }
+            var payload: [String: Any] = [:]
+            if operation == "begin" {
+                payload["client_id"] = body["client_id"] ?? ""
+                if let scopes = body["scopes"] { payload["scopes"] = scopes }
+            }
+            return try await send("POST", path + "/" + operation, payload)
         case "health": return try await send("GET", "/desktop/health")
         case "shutdown": return try await send("POST", "/desktop/shutdown")
         case "status": return try await status()

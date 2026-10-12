@@ -52,7 +52,7 @@
 
 ### `connectors/downstream_mcp/`
 
-**Read when working with:** Registration, discovery, security, or invocation of downstream MCP servers.
+**Read when working with:** Registration, discovery, security, or invocation of downstream MCP servers. `oauth/` owns shared sign-in orchestration, metadata discovery, registration decisions, scope summaries, diagnostics, safe failures, and authorization/discovery status. `oauth/ports.py` defines deployment storage and callback ports; `oauth/provider.py` applies public-client policy for both interactive and runtime use. `adapters/fastmcp/oauth_client.py` contains the SDK session transport. No shared OAuth module depends on Desktop.
 
 ### Other
 

@@ -31,6 +31,11 @@ class MemoryVault:
         self.values.pop(reference, None)
 
 
+async def discovered_names(agent):
+    result = await agent.call_tool("search_tools", {"query": "echo"})
+    return {match["tool_name"] for match in result.structured_content["matches"]}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("transport", ["http", "stdio", "legacy_stdio"])
 async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
@@ -171,7 +176,7 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                     )
                 ) as first_agent:
                     async with asyncio.timeout(15):
-                        while not await first_agent.list_tools():
+                        while not await discovered_names(first_agent):
                             await asyncio.sleep(0.1)
                 # Adding another connector must not hide its enabled tools behind
                 # a runtime catalog or permission snapshot from the first connector.
@@ -226,15 +231,16 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                     )
                 ) as agent:
                     async with asyncio.timeout(15):
-                        while len(available := await agent.list_tools()) != 2:
+                        assert {tool.name for tool in await agent.list_tools()} == {"search_tools", "execute_tool"}
+                        while len(await discovered_names(agent)) != 2:
                             await asyncio.sleep(0.1)
                     result = await agent.call_tool(
-                        next(t.name for t in available if t.name == "Fixture_echo"),
-                        {
+                        "execute_tool",
+                        {"tool_name": "Fixture_echo", "arguments": {
                             "text"
                             if transport == "legacy_stdio"
                             else "message": "hello python"
-                        },
+                        }},
                     )
                     assert "hello python" in str(result)
                     state = (await client.get("/desktop/state")).json()
@@ -249,7 +255,7 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                         base, json={"tool_name_prefix": legacy_prefix}
                     )).status_code == 200
                     async with asyncio.timeout(15):
-                        while not any(t.name == legacy_prefix + "_echo" for t in await agent.list_tools()):
+                        while legacy_prefix + "_echo" not in await discovered_names(agent):
                             await asyncio.sleep(0.1)
 
                     async def admin_request(method, path, body=None):
@@ -261,12 +267,12 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                     await names.repair(DesktopState(tmp_path))
                     await names.repair(DesktopState(tmp_path))
                     async with asyncio.timeout(15):
-                        while "Fixture_echo" not in {t.name for t in await agent.list_tools()}:
+                        while "Fixture_echo" not in await discovered_names(agent):
                             await asyncio.sleep(0.1)
-                    assert legacy_prefix + "_echo" not in {t.name for t in await agent.list_tools()}
-                    repaired = await agent.call_tool("Fixture_echo", {
+                    assert legacy_prefix + "_echo" not in await discovered_names(agent)
+                    repaired = await agent.call_tool("execute_tool", {"tool_name": "Fixture_echo", "arguments": {
                         "text" if transport == "legacy_stdio" else "message": "after repair"
-                    })
+                    }})
                     assert "after repair" in str(repaired)
                     revoked = await client.put(
                         base + "/tools/activation",
@@ -278,14 +284,12 @@ async def test_shared_backend_connector_flow(tmp_path, transport, monkeypatch):
                     )
                     assert revoked.status_code == 200
                     async with asyncio.timeout(15):
-                        while any(
-                            t.name == "Fixture_echo" for t in await agent.list_tools()
-                        ):
+                        while "Fixture_echo" in await discovered_names(agent):
                             await asyncio.sleep(0.1)
                     with pytest.raises(ToolError):
                         await agent.call_tool(
-                            next(t.name for t in available if t.name == "Fixture_echo"),
-                            {"message": "denied"},
+                            "execute_tool",
+                            {"tool_name": "Fixture_echo", "arguments": {"message": "denied"}},
                         )
                 for path in (
                     "/api/admin/connectors/mcp",

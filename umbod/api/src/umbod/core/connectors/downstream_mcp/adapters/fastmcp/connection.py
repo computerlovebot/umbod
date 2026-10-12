@@ -1,3 +1,4 @@
+from umbod.core.connectors.downstream_mcp.oauth.provider import InteractiveConnectorOAuth
 import ssl
 from typing import Protocol, TypeAlias
 
@@ -123,7 +124,7 @@ class FastMCPOAuthConnection(_FastMCPConnection):
         )
         if document.endpoint_url != configuration.endpoint_url:
             raise SignInRequired()
-        self._oauth = ConnectorOAuth(
+        self._oauth = InteractiveConnectorOAuth(
             ConnectorOAuthStorage(
                 document,
                 configuration.connector_id,
