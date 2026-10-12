@@ -100,7 +100,7 @@ for app in apps {
 for app in apps { if !app.terminate() { exit(1) } }
 let deadline = Date().addingTimeInterval(15)
 while apps.contains(where: { !$0.isTerminated }) {
-    if Date() > deadline { fputs("Umbod did not quit.\\n", stderr); exit(1) }
+    if Date() > deadline { fputs("Umbod did not quit. Close open settings or confirmation sheets, quit Umbod, then rerun this installer. The installed app has not been replaced.\\n", stderr); exit(1) }
     RunLoop.current.run(until: Date().addingTimeInterval(0.1))
 }
 ''', target)
