@@ -385,6 +385,14 @@ struct ConnectionView: View {
     @State private var copying = false
     @State private var copied: String?
     @State private var copyRevision = UUID()
+    private let setupPrompt = """
+    Set up Umbod for my agent across projects. Read the Umbod MCP resource \
+    umbod://setup/agent-instructions and follow its instructions to add Umbod \
+    discovery guidance to my user-scoped agent instructions, preserving existing \
+    content. Verify discovery without executing app tools and report which file \
+    changed. If you cannot access the resource or connection, explain the \
+    problem instead of claiming setup succeeded.
+    """
     private var configuration: String { (try? ClientConfiguration.bridge(bundlePath: Bundle.main.bundlePath, environment: .current, executable: model.dataDirectory == nil ? AppEnvironment.current.gatewayExecutable : nil)) ?? "" }
     private var endpoint: String { "http://\(model.backend.gateway)/mcp" }
     private var command: String {
@@ -426,6 +434,16 @@ struct ConnectionView: View {
                 Button { copyConfiguration(token: true) } label: { copyLabel("Copy token", target: "token") }.disabled(copying)
             }
             Text("This secret lets your agent use the tools you enable in Umbod.").font(.caption).foregroundStyle(Brand.muted)
+        }
+        Panel {
+            Label("Help your agent discover connected apps", systemImage: "text.bubble").font(.headline)
+            Text("After connecting, paste this prompt into your agent. It asks your agent to save Umbod discovery guidance in your user-level instructions across projects.").foregroundStyle(Brand.muted)
+            Text(setupPrompt).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Brand.soft, in: RoundedRectangle(cornerRadius: 8))
+            Button { copy(setupPrompt, target: "setup") } label: { copyLabel("Copy setup prompt", target: "setup") }
+                .buttonStyle(BrandButtonStyle(primary: true))
+                .accessibilityIdentifier("mcp.copySetupPrompt")
         }
         .task(id: copyRevision) {
             guard copied != nil else { return }

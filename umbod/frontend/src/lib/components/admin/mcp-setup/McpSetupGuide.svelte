@@ -1,5 +1,23 @@
 <script lang="ts">
   import CopyableValue from '$lib/components/admin/connectors/CopyableValue.svelte';
+  import { BrowserNavigatorClipboardWriter } from '$lib/admin/clipboard';
+  import { useToast } from '$lib/components/feedback';
+
+  const toast = useToast();
+  const clipboard = new BrowserNavigatorClipboardWriter();
+  let copied = $state(false);
+  const setupPrompt = 'Set up Umbod for my agent across projects. Read the Umbod MCP resource umbod://setup/agent-instructions and follow its instructions to add Umbod discovery guidance to my user-scoped agent instructions, preserving existing content. Verify discovery without executing app tools and report which file changed. If you cannot access the resource or connection, explain the problem instead of claiming setup succeeded.';
+
+  async function copySetupPrompt() {
+    try {
+      await clipboard.writeText(setupPrompt);
+      copied = true;
+      toast.success('Setup prompt copied to clipboard');
+    } catch {
+      copied = false;
+      toast.error('Could not copy setup prompt');
+    }
+  }
 
   type Props = { mcpEndpoint: string };
   let { mcpEndpoint }: Props = $props();
@@ -31,6 +49,14 @@
     <li>Add it as a custom remote MCP server in your harness.</li>
     <li>Complete authentication, review the available tools, and start a new conversation.</li>
   </ol>
+</section>
+
+<section class="connection-card setup-card" aria-labelledby="setup-title">
+  <h2 id="setup-title">Help your agent discover connected apps</h2>
+  <p>After connecting, paste this prompt into your agent. It asks your agent to save Umbod discovery guidance in your user-level instructions across projects.</p>
+  <pre><code>{setupPrompt}</code></pre>
+  <button type="button" onclick={copySetupPrompt}>{copied ? 'Copied' : 'Copy setup prompt'}</button>
+  <p class="setup-note">Requires an agent that can read MCP resources and edit local instruction files.</p>
 </section>
 
 <div class="guides">
@@ -98,6 +124,12 @@
   h2 { color: var(--admin-ink); font-size: 18px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.35; margin: 0; }
   .connection-card, .guide-card { background: var(--admin-panel); border: 1px solid var(--admin-border); border-radius: var(--admin-radius-panel); }
   .connection-card { display: grid; gap: 18px; min-width: 0; padding: 24px; }
+  .setup-card { margin-top: 18px; }
+  .setup-card p { color: var(--admin-muted); font-size: 14px; line-height: 1.55; margin: 0; }
+  .setup-card pre { margin: 0; }
+  .setup-card .setup-note { font-size: 12px; }
+  .setup-card button { background: var(--admin-accent-strong); border: 0; border-radius: var(--admin-radius); color: var(--admin-panel); cursor: pointer; font: inherit; justify-self: start; padding: 10px 16px; }
+  .setup-card button:focus-visible { outline: 2px solid var(--admin-accent); outline-offset: 3px; }
   .connection-card :global(.copyable-value) { background: var(--admin-soft); box-sizing: border-box; max-width: 640px; width: 100%; }
   .step-label { color: var(--admin-accent-strong); font-family: var(--admin-mono); font-size: 11px; font-weight: 500; letter-spacing: .08em; margin: 0 0 5px; text-transform: uppercase; }
   .guides { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 18px; }

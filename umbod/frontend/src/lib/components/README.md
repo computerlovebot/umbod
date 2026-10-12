@@ -27,6 +27,10 @@ existing logo. `AdminShell` provides the inline-size container used by
 
 **Read when working with:** Administration shell, connectors, permissions, OpenAPI, or downstream MCP interfaces. Mutation forms dispatch typed browser operations through `$lib/admin/operations/browser-submit`; callbacks preserve reconciliation and register pending-state cleanup.
 
+### `admin/mcp-setup/`
+
+`McpSetupGuide.svelte` provides connection instructions and a copyable prompt referring to the shared `umbod://setup/agent-instructions` MCP resource for user-scoped agent discovery setup.
+
 ### `admin/overview/`
 
 **Read when working with:** Overview cards, connector breakdown, partial-data warnings or connector attention presentation. See `admin/overview/README.md`.
