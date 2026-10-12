@@ -25,6 +25,14 @@ node --test website/tests/*.test.mjs
 cd website && bun run build
 ```
 
+## Install the current code locally
+
+Run `python3 desktop/scripts/install-local.py` from the repository root to build and install the release app into `/Applications/Umbod.app`, then reopen it. Use `--dry-run` to preview the steps without changing anything. This is an explicit production install; it does not install or stop Umbod Dev.
+
+The script verifies the staged bundle before quitting the installed UI and stopping its authenticated gateway. Active production tool calls are interrupted during replacement. It retains the previous app under `/Applications/.umbod-local-backups/<timestamp>/Umbod.app` and restores it if the bundle replacement fails. A startup failure leaves the new app installed for inspection and reports the retained backup; it does not roll back application data. Backups are retained until you remove them.
+
+Connections and permissions remain in `~/Library/Application Support/Umbod`; secrets remain in Keychain. New code uses that real production profile, so this is not an isolated test and does not snapshot database migrations. Run as your normal user with write access to the installation location, never with `sudo`. Local builds remain ad-hoc signed and unnotarized; the script does not bypass macOS security checks.
+
 ## Use and lifecycle
 
 Add local executable or remote Streamable HTTP connectors, rediscover their tools, then explicitly enable tools. New tools start disabled. Permission changes apply to subsequent calls from every connected client. Settings → MCP provides bridge configuration. Credentials remain in macOS Keychain; there is no plaintext fallback.
