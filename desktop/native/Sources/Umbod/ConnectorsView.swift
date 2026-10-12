@@ -53,7 +53,7 @@ struct ServersView: View {
                                 }.buttonStyle(.plain).accessibilityIdentifier("connector.row.\(server["name"] as? String ?? "")")
                                 Menu {
                                     Button("Connection settings") { sheet = .manage(id) }
-                                    Button("Connect / rediscover") { model.act(["action":"connect", "id":id]) }.disabled(model.busy)
+                                    Button("Connect / rediscover") { model.act(["action":"connect", "id":id]) }.disabled(model.busy || model.signInActivities[id] != nil)
                                     Button("Edit connection") { sheet = .edit(id) }
                                     Divider()
                                     Button("Remove connector", role: .destructive) { removal = id }
@@ -65,6 +65,7 @@ struct ServersView: View {
                 }
             }
         }
+        .onChange(of: selectedConnector) { _, _ in model.notice = ""; model.error = "" }
         .sheet(item: $sheet) { route in
             switch route {
             case .add: ServerEditor(draft: ServerDraft(), onSaved: { selectedConnector = $0 })
@@ -130,6 +131,9 @@ struct ConnectorManagementView: View {
     var continueSetup: (() -> Void)? = nil
     @State private var clientID = ""
     @State private var scopes = ""
+    @State private var authDetails: [String: Any] = [:]
+    @State private var checkingSignIn = false
+    private var availableScopes: [String] { authDetails["available_scopes"] as? [String] ?? [] }
     @State private var advancedSignIn = false
     private var id: String { server["id"] as? String ?? "" }
     private var oauthStatus: String {
@@ -138,21 +142,29 @@ struct ConnectorManagementView: View {
         case "sign_in_required": "Sign-in required"
         case "signed_in": "Signed in"
         case "failed": "Sign-in failed. Try again."
+        case "discovery_failed": "Authorized. Retry tool discovery."
+        case "cancelled": "Sign-in cancelled. Retry when ready."
         default: server["oauth"] as? Bool == true ? "Signed in" : "Not signed in"
         }
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack { Text(server["name"] as? String ?? "Connection settings").font(.title2.bold()); Spacer(); Button("Done") { dismiss() } }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack { Text(server["name"] as? String ?? "Connection settings").font(.title2.bold()); Spacer(); Button("Done") { dismiss() } }.padding(28)
+            ScrollView { VStack(alignment: .leading, spacing: 20) {
             StatusMessages()
-            if model.busy && (model.signingInID == nil || model.signingInID == id) {
+            if model.busy {
                 HStack { ProgressView().controlSize(.small); Text(model.activity) }
-                    .accessibilityIdentifier("connector.progress")
             }
-            if let signingInID = model.signingInID, signingInID != id {
-                let name = model.servers.first { $0["id"] as? String == signingInID }?["name"] as? String ?? "another connector"
-                Text("Finish signing in to \(name) in your browser, then continue here.")
-                    .foregroundStyle(Brand.muted)
+            if let activity = model.signInActivities[id] {
+                HStack { ProgressView().controlSize(.small); Text(activity); Button("Cancel sign-in") { model.cancelSignIn(id) } }
+                    .accessibilityIdentifier("connector.progress")
+                if let url = model.signInURLs[id] {
+                    HStack {
+                        Button("Reopen browser") { model.reopenSignIn(id) }
+                        Button("Copy sign-in link") { model.copy(url.absoluteString) }
+                    }
+                    Text("Use the browser profile for the account you want to connect. You can paste the link into another profile.").font(.caption)
+                }
             }
             Text(model.statuses[id] ?? "Disconnected").foregroundStyle(Brand.muted)
             if let continueSetup, model.statuses[id] == "Connected" {
@@ -164,7 +176,7 @@ struct ConnectorManagementView: View {
                 Text("Connection").font(.headline)
                 Text(server["transport"] as? String == "stdio" ? (server["command"] as? String ?? "") : (server["url"] as? String ?? "")).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 HStack {
-                    Button("Connect / rediscover") { model.act(["action":"connect", "id":id]) }.disabled(model.busy)
+                    Button("Connect / rediscover") { model.act(["action":"connect", "id":id]) }.disabled(model.busy || model.signInActivities[id] != nil)
                     Button("Edit connection", action: edit)
                 }
             }
@@ -172,6 +184,37 @@ struct ConnectorManagementView: View {
                 Panel {
                     Text("Browser sign-in (OAuth)").font(.headline)
                     Text(oauthStatus).font(.callout).foregroundStyle(Brand.muted)
+                    Button(checkingSignIn ? "Checking…" : "Check sign-in requirements") { checkSignIn() }.disabled(checkingSignIn || model.signInActivities[id] != nil)
+                    if let registration = authDetails["registration"] as? String, registration != "unknown" {
+                        Text(registration == "automatic" ? "This server supports automatic client registration." : registration == "hosted_metadata" ? "This server supports Umbod’s public OAuth identity." : "This server requires a registered OAuth client. Open advanced options for the callback URL and client ID.").font(.caption)
+                    }
+                    if authDetails["endpoint_differs"] as? Bool == true, let endpoint = authDetails["canonical_endpoint"] as? String {
+                        Text("The server advertises a different endpoint:").font(.caption)
+                        Text(endpoint).font(.caption).textSelection(.enabled)
+                        HStack { Button("Copy suggested endpoint") { model.copy(endpoint) }; Button("Edit endpoint", action: edit) }
+                        Text("Review the address before using it. Umbod has not forwarded your credentials to it.").font(.caption)
+                    }
+                    if !availableScopes.isEmpty {
+                        DisclosureGroup("Choose provider permissions (\(scopes.split(separator: " ").count) selected)") {
+                            VStack(alignment: .leading, spacing: 8) { HStack {
+                                Button("Select all permissions") { scopes = availableScopes.joined(separator: " ") }
+                                Button("Clear permissions") { scopes = "" }
+                            }
+                            ForEach(availableScopes, id: \.self) { scope in
+                                Toggle(scope, isOn: Binding(get: { scopes.split(separator: " ").map(String.init).contains(scope) }, set: { enabled in
+                                    var chosen = Set(scopes.split(separator: " ").map(String.init))
+                                    if enabled { chosen.insert(scope) } else { chosen.remove(scope) }
+                                    scopes = chosen.sorted().joined(separator: " ")
+                                })).toggleStyle(.checkbox).font(.caption)
+                            } }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if scopes.isEmpty { Text("Choose the permissions you want before signing in. Scope names are supplied by the provider.").font(.caption) }
+                    }
+                    Text("Provider access and enabled tools are separate. Disabling a tool in Umbod does not revoke the provider’s permission.").font(.caption)
+                    if let granted = authDetails["granted_scopes"] as? String, !granted.isEmpty {
+                        DisclosureGroup("Provider-granted permissions") { Text(granted).font(.caption).textSelection(.enabled) }
+                    }
+                    Text("The account and workspace are selected in your provider’s browser. MCP does not always report them to Umbod.").font(.caption).foregroundStyle(Brand.muted)
                     Button { advancedSignIn.toggle() } label: {
                         HStack {
                             Text("Advanced sign-in options")
@@ -181,28 +224,49 @@ struct ConnectorManagementView: View {
                     }
                     if advancedSignIn {
                         TextField("Public client ID (optional)", text: $clientID)
-                        Text("Only needed when your provider supplies a client ID.").font(.caption)
+                        Text("If automatic registration is unavailable, register a native public OAuth client with your provider. Use PKCE, no client secret, and this callback URL:").font(.caption)
+                        if let callback = authDetails["callback_url"] as? String {
+                            HStack { Text(callback).font(.caption).textSelection(.enabled); Button("Copy callback URL") { model.copy(callback) } }
+                        }
                         TextField("OAuth scopes (optional, space-separated)", text: $scopes)
                         Text("Limit the permissions requested at sign-in. Leave blank to use the provider's defaults.").font(.caption)
                     }
                     HStack {
-                        Button("Sign in with browser") { model.signIn(id, clientID: clientID, scopes: scopes) }
+                        Button("Sign in with browser") { model.signIn(id, clientID: clientID, scopes: scopes) }.disabled(checkingSignIn || (!availableScopes.isEmpty && scopes.isEmpty) || authDetails["endpoint_differs"] as? Bool == true)
                         Button("Refresh token") { model.act(["action":"oauth_refresh", "id":id], success: "Token refreshed and transport reconnected.") }
                         Button("Sign out") { model.act(["action":"oauth_logout", "id":id]) }
-                    }.disabled(model.busy)
+                    }.disabled(model.busy || model.signInActivities[id] != nil)
+                    DisclosureGroup("Connection diagnostics") {
+                        Text("Contains setup stages and timestamps only; no tokens, messages, or tool results.").font(.caption)
+                        Button("Copy diagnostics") { model.copy((try? JSONText.encode(authDetails["diagnostics"] ?? [])) ?? "[]") }
+                    }
                     Text("Signing in automatically connects and discovers your tools.").font(.caption).foregroundStyle(Brand.muted)
                 }
             }
-        }.padding(28).frame(width: 600).modifier(BrandAppearance())
+        }.padding(.horizontal, 28).padding(.bottom, 28) } }.frame(width: 680).frame(maxHeight: 740).modifier(BrandAppearance())
         .task {
             model.notice = ""
             model.error = model.oauthErrors[id] ?? ""
             scopes = server["oauth_scopes"] as? String ?? ""
-            if continueSetup != nil && model.statuses[id] == "Sign-in required" && !model.busy {
-                model.signIn(id, clientID: "")
+            if server["transport"] as? String == "http" {
+                authDetails = (try? await model.backend.request(["action": "oauth_details", "id": id])) ?? [:]
+                if authDetails["has_authorization"] as? Bool != true { checkSignIn() }
             }
+
+        }
+        .onChange(of: model.oauthStatuses[id]) { _, _ in
+            Task { authDetails = (try? await model.backend.request(["action": "oauth_details", "id": id])) ?? authDetails }
         }
     }
+    private func checkSignIn() {
+        checkingSignIn = true
+        Task {
+            defer { checkingSignIn = false }
+            do { authDetails = try await model.backend.request(["action": "oauth_discover", "id": id]) }
+            catch { model.error = error.localizedDescription }
+        }
+    }
+
 }
 struct ConnectorToolsView: View {
     @EnvironmentObject var model: AppModel
@@ -212,6 +276,8 @@ struct ConnectorToolsView: View {
     @State private var filter = "All tools"
     @State private var selectedName: String?
     @State private var bulkAllow: Bool?
+    @State private var bulkNames: [String] = []
+    @State private var checkedTools: Set<String> = []
     private var id: String { connector["id"] as? String ?? "" }
     private var tools: [[String: Any]] {
         model.tools.filter { ($0["name"] as? String ?? "").hasPrefix(id + ".") }
@@ -221,7 +287,9 @@ struct ConnectorToolsView: View {
         tools.filter { tool in
             let name = tool["name"] as? String ?? ""
             let enabled = model.allowedTools.contains(name)
-            return (filter == "All tools" || enabled == (filter == "Enabled")) &&
+            let readOnly = (tool["annotations"] as? [String: Any])?["readOnlyHint"] as? Bool == true
+            return (filter == "All tools" || (filter == "Reported read-only" && readOnly) ||
+                    (filter == "Enabled" && enabled) || (filter == "Disabled" && !enabled)) &&
                 (query.isEmpty || name.localizedCaseInsensitiveContains(query) || (tool["description"] as? String ?? "").localizedCaseInsensitiveContains(query))
         }
     }
@@ -240,17 +308,28 @@ struct ConnectorToolsView: View {
                 .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Brand.soft, in: RoundedRectangle(cornerRadius: 8))
             HStack(spacing: 12) {
                 TextField("Search tools…", text: $query).frame(maxWidth: 340)
-                Picker("Show", selection: $filter) { ForEach(["All tools", "Enabled", "Disabled"], id: \.self) { Text($0) } }.frame(width: 180)
+                Picker("Show", selection: $filter) { ForEach(["All tools", "Enabled", "Disabled", "Reported read-only"], id: \.self) { Text($0) } }.frame(width: 180)
                 Spacer()
-                Button("Enable all") { bulkAllow = true }
+                Button("Enable all") { prepareBulk(tools, allow: true) }
                     .disabled(model.busy || tools.isEmpty || tools.allSatisfy { model.allowedTools.contains($0["name"] as? String ?? "") })
                     .accessibilityIdentifier("tools.enable-all")
-                Button("Disable all") { bulkAllow = false }
+                Button("Disable all") { prepareBulk(tools, allow: false) }
                     .disabled(model.busy || !tools.contains { model.allowedTools.contains($0["name"] as? String ?? "") })
                     .accessibilityIdentifier("tools.disable-all")
             }
             if model.busy {
                 HStack { ProgressView().controlSize(.small); Text(model.activity) }
+            }
+            HStack {
+                Button("Select filtered (\(filtered.count))") { checkedTools.formUnion(filtered.compactMap { $0["name"] as? String }) }
+                Button("Clear selection") { checkedTools.removeAll() }.disabled(checkedTools.isEmpty)
+                Text("\(checkedTools.count) selected").font(.caption)
+                Spacer()
+                Button("Enable selected") { prepareBulk(tools.filter { checkedTools.contains($0["name"] as? String ?? "") }, allow: true) }.disabled(checkedTools.isEmpty || model.busy)
+                Button("Disable selected") { prepareBulk(tools.filter { checkedTools.contains($0["name"] as? String ?? "") }, allow: false) }.disabled(checkedTools.isEmpty || model.busy)
+            }
+            if filter == "Reported read-only" {
+                Text("Read-only labels are supplied by the server. Review descriptions and provider permissions; these labels are not security guarantees.").font(.caption).foregroundStyle(Brand.muted)
             }
             if tools.isEmpty {
                 ContentUnavailableView("No tools discovered", systemImage: "wrench.and.screwdriver", description: Text("Open connection settings to connect or rediscover tools."))
@@ -264,6 +343,8 @@ struct ConnectorToolsView: View {
                                 let tool = filtered[index]
                                 let name = tool["name"] as? String ?? ""
                                 HStack(spacing: 10) {
+                                    Toggle("Select \(String(name.dropFirst(id.count + 1)))", isOn: Binding(get: { checkedTools.contains(name) }, set: { if $0 { checkedTools.insert(name) } else { checkedTools.remove(name) } })).labelsHidden().toggleStyle(.checkbox)
+                                        .accessibilityIdentifier("tool.select.\(String(name.dropFirst(id.count + 1)))")
                                     Button { selectedName = name } label: {
                                         Text(String(name.dropFirst(id.count + 1))).font(.system(size: 12, design: .monospaced))
                                             .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10).contentShape(Rectangle())
@@ -282,6 +363,9 @@ struct ConnectorToolsView: View {
                             VStack(alignment: .leading, spacing: 20) {
                                 Text("TOOL DETAILS").font(.system(size: 10, design: .monospaced)).tracking(1).foregroundStyle(Brand.muted)
                                 Text(String(name.dropFirst(id.count + 1))).font(.system(size: 15, weight: .semibold, design: .monospaced)).textSelection(.enabled)
+                                if let readOnly = (tool["annotations"] as? [String: Any])?["readOnlyHint"] as? Bool {
+                                    Text(readOnly ? "Server reports: read-only (not a security guarantee)" : "Server reports: may change data").font(.caption).foregroundStyle(Brand.muted)
+                                }
                                 Text(tool["description"] as? String ?? "No description provided.").font(.system(size: 14)).lineSpacing(4).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                                 HStack { Text(model.allowedTools.contains(name) ? "Enabled for your apps" : "Disabled for your apps"); Spacer(); permissionToggle(name) }
                                 Divider()
@@ -295,17 +379,32 @@ struct ConnectorToolsView: View {
             }
         }
         .task(id: id) { model.notice = ""; model.error = model.oauthErrors[id] ?? "" }
-        .confirmationDialog(bulkAllow == true ? "Enable all \(tools.count) tools for every connected app?" : "Disable all tools for every connected app?", isPresented: Binding(get: { bulkAllow != nil }, set: { if !$0 { bulkAllow = nil } }), titleVisibility: .visible) {
-            Button(bulkAllow == true ? "Enable all tools" : "Disable all tools") {
-                if let allow = bulkAllow {
-                    let names = tools.compactMap { $0["name"] as? String }.map { String($0.dropFirst(id.count + 1)) }
-                    model.act(["action": "grant_tools", "id": id, "tools": names, "allow": allow], success: allow ? "All tools enabled." : "All tools disabled.")
+        .sheet(isPresented: Binding(get: { bulkAllow != nil }, set: { if !$0 { bulkAllow = nil } })) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("\(bulkAllow == true ? "Enable" : "Disable") \(bulkNames.count) tools?").font(.title2.bold())
+                Text("This applies to every connected app. Provider authorization is unchanged.").font(.callout)
+                Text("Only these tools will change:").font(.headline)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(bulkNames, id: \.self) { Text($0).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 280)
+                HStack {
+                    Button("Cancel") { bulkAllow = nil }.keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button(bulkAllow == true ? "Enable these tools" : "Disable these tools") {
+                        if let allow = bulkAllow {
+                            model.act(["action": "grant_tools", "id": id, "tools": bulkNames, "allow": allow], success: "Updated \(bulkNames.count) tools.")
+                        }
+                        bulkAllow = nil
+                    }.buttonStyle(.borderedProminent)
                 }
-                bulkAllow = nil
-            }
-        } message: {
-            Text(bulkAllow == true ? "This includes any editing or deletion tools in this connector. It applies to all tools, including those hidden by the current filter." : "The connector stays connected. You can enable its tools again later.")
+            }.padding(28).frame(width: 560).modifier(BrandAppearance())
         }
+    }
+    private func prepareBulk(_ selection: [[String: Any]], allow: Bool) {
+        bulkNames = selection.compactMap { $0["name"] as? String }.map { String($0.dropFirst(id.count + 1)) }
+        bulkAllow = allow
     }
     private func permissionToggle(_ name: String) -> some View {
         Toggle("Allow \(String(name.dropFirst(id.count + 1)))", isOn: Binding(get: { model.allowedTools.contains(name) }, set: { model.act(["action":"grant", "tool":name, "allow":$0]) }))

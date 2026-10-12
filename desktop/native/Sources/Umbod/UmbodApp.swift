@@ -32,7 +32,10 @@ import UmbodCore
     @Published var activity = ""
     @Published var oauthStatuses: [String: String] = [:]
     @Published var oauthErrors: [String: String] = [:]
-    @Published var signingInID: String?
+    @Published var oauthStages: [String: String] = [:]
+    @Published var signInActivities: [String: String] = [:]
+    @Published var signInURLs: [String: URL] = [:]
+    private var signInTasks: [String: Task<Void, Never>] = [:]
     @Published var online = false
     private var starting = false
     func start() async {
@@ -61,6 +64,7 @@ import UmbodCore
         statuses = state["statuses"] as? [String: String] ?? [:]
         oauthStatuses = state["oauth_status"] as? [String: String] ?? [:]
         oauthErrors = state["oauth_errors"] as? [String: String] ?? [:]
+        oauthStages = state["oauth_stages"] as? [String: String] ?? [:]
         online = backend.isRunning
     }
     func act(_ body: [String: Any], success: String = "") {
@@ -73,40 +77,64 @@ import UmbodCore
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); notice = message
     }
     func signIn(_ id: String, clientID: String, scopes: String? = nil) {
-        Task {
-            busy = true; signingInID = id; error = ""; activity = "Opening browser sign-in…"
-            defer { busy = false; signingInID = nil; activity = "" }
+        guard signInTasks[id] == nil else { return }
+        signInActivities[id] = "Discovering sign-in requirements…"
+        signInTasks[id] = Task {
+            error = ""
+            defer { signInActivities[id] = nil; signInURLs[id] = nil; signInTasks[id] = nil }
             do {
                 var request: [String: Any] = ["action": "oauth_begin", "id": id, "client_id": clientID]
                 if let scopes { request["scopes"] = scopes }
                 let result = try await backend.request(request)
+                try Task.checkCancellation()
                 if let value = result["url"] as? String, !value.isEmpty, let url = URL(string: value) {
-                    guard NSWorkspace.shared.open(url) else { throw ContractError.message("Could not open your browser. Try signing in again.") }
+                    signInURLs[id] = url
+                    if !NSWorkspace.shared.open(url) { signInActivities[id] = "Open or copy the sign-in link to continue." }
                 }
-                activity = "Waiting for browser sign-in. Complete the sign-in in your browser."
                 for _ in 0..<160 {
+                    try Task.checkCancellation()
                     try await refresh()
                     switch oauthStatuses[id] {
                     case "signed_in":
-                        activity = "Signed in. Discovering tools…"
+                        signInActivities[id] = "Authorized. Discovering tools…"
                         _ = try await backend.request(["action": "connect", "id": id])
                         try await refresh()
-                        notice = "Connected. Choose which tools your apps can use."
+                        notice = "Connected. Review the tools your apps can use."
                         return
+                    case "discovery_failed":
+                        throw ContractError.message("Authorization saved. Retry tool discovery from Connection settings. " + (oauthErrors[id] ?? ""))
                     case "failed":
-                        throw ContractError.message(oauthErrors[id] ?? "Browser sign-in did not complete. Try again in Connection settings.")
-                    default: break
+                        throw ContractError.message(oauthErrors[id] ?? "Sign-in failed. Retry from Connection settings.")
+                    case "cancelled": return
+                    default:
+                        signInActivities[id] = ["metadata": "Checking sign-in requirements…", "discovery": "Connecting and discovering tools…", "token_exchange": "Finishing authorization…", "browser": "Waiting for approval in your browser…"][oauthStages[id] ?? ""] ?? "Starting sign-in…"
                     }
                     try await Task.sleep(for: .seconds(2))
                 }
-                throw ContractError.message("Browser sign-in timed out. Try again in Connection settings.")
-            } catch { self.error = error.localizedDescription; try? await refresh() }
+                _ = try? await backend.request(["action": "oauth_cancel", "id": id])
+                throw ContractError.message("Sign-in timed out. Start a new attempt in Connection settings.")
+            } catch is CancellationError { }
+              catch { self.error = error.localizedDescription; try? await refresh() }
         }
     }
+    func cancelSignIn(_ id: String) {
+        Task {
+            do {
+                _ = try await backend.request(["action": "oauth_cancel", "id": id])
+                signInTasks[id]?.cancel()
+                try await refresh()
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+    func reopenSignIn(_ id: String) {
+        if let url = signInURLs[id] { NSWorkspace.shared.open(url) }
+    }
+
 
 }
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(prepareForLocalInstall(_:)), name: Notification.Name("app.umbod.desktop.prepareForLocalInstall"), object: nil, suspensionBehavior: .deliverImmediately)
         // Refresh the running Dock icon even when macOS cached an older bundle icon.
         if let iconURL = Bundle.main.url(forResource: "UmbodBrand", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) {
@@ -114,6 +142,18 @@ import UmbodCore
         }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+    }
+    @objc func prepareForLocalInstall(_ notification: Notification) {
+        guard notification.object as? String == Bundle.main.bundleURL.standardizedFileURL.path else { return }
+        for window in NSApp.windows {
+            if let sheet = window.attachedSheet { window.endSheet(sheet); sheet.orderOut(nil) }
+        }
+        if NSApp.modalWindow != nil { NSApp.abortModal() }
+        DispatchQueue.main.async { NSApp.terminate(nil) }
+    }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        for window in sender.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
+        return .terminateNow
     }
     func applicationWillTerminate(_ notification: Notification) { AppModel.shared.backend.stop() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

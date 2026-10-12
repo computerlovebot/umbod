@@ -47,6 +47,8 @@ import Foundation
         var statuses: [String: String] = [:]
         var oauthStatuses: [String: String] = [:]
         var oauthErrors: [String: String] = [:]
+        var oauthStages: [String: String] = [:]
+        let hostOAuthStages = host["oauth_stages"] as? [String: String] ?? [:]
         let hostOAuthErrors = host["oauth_errors"] as? [String: String] ?? [:]
         let hostOAuth = host["oauth_status"] as? [String: String] ?? [:]
         let permissions = try await send("GET", "/api/admin/mcp-permissions/groups/desktop-owner")
@@ -62,14 +64,14 @@ import Foundation
             }
             servers.append(server)
             if let key = server["host_id"] as? String { oauthStatuses[id] = hostOAuth[key] ?? (server["oauth"] as? Bool == true ? "signed_in" : "signed_out") }
-            if let key = server["host_id"] as? String { oauthErrors[id] = hostOAuthErrors[key] }
+            if let key = server["host_id"] as? String { oauthErrors[id] = hostOAuthErrors[key]; oauthStages[id] = hostOAuthStages[key] }
             let health = item["health"] as? [String: Any] ?? [:]
             statuses[id] = Self.connectionStatus(health: health, oauth: oauthStatuses[id] ?? "", pending: false)
             let catalog = try await send("GET", connector(id) + "/tools")
             for tool in catalog["tools"] as? [[String: Any]] ?? [] {
                 guard let name = tool["name"] as? String else { continue }
                 let identity = id + "." + name
-                tools.append(["name": identity, "description": tool["description"] ?? "", "inputSchema": tool["input_schema"] ?? [:]])
+                tools.append(["name": identity, "description": tool["description"] ?? "", "inputSchema": tool["input_schema"] ?? [:], "annotations": tool["annotations"] ?? [:]])
                 let granted = connectorGrants.contains(id) || grants.contains { $0["connector_id"] as? String == id && $0["capability_kind"] as? String == "tool" && $0["capability_key"] as? String == name }
                 if tool["activation_status"] as? String == "enabled" && granted { enabled.append(identity) }
             }
@@ -85,11 +87,13 @@ import Foundation
             servers.append(pending)
             oauthStatuses[id] = hostOAuth[key] ?? (value["oauth"] as? Bool == true ? "signed_in" : "signed_out")
             oauthErrors[id] = hostOAuthErrors[key]
+            oauthStages[id] = hostOAuthStages[key]
             statuses[id] = Self.connectionStatus(health: [:], oauth: oauthStatuses[id] ?? "", pending: true)
         }
         var result = host
         result["oauth_status"] = oauthStatuses
         result["oauth_errors"] = oauthErrors
+        result["oauth_stages"] = oauthStages
         result["servers"] = servers; result["tools"] = tools; result["allowed_tools"] = enabled; result["statuses"] = statuses
         return result
     }
@@ -170,6 +174,8 @@ import Foundation
         if oauth == "sign_in_required" || health["reason"] as? String == "auth_rejected" {
             return "Sign-in required"
         }
+        if oauth == "discovery_failed" { return "Authorized — retry tool discovery" }
+        if oauth == "cancelled" { return "Sign-in cancelled — retry when ready" }
         if oauth == "failed" { return "Sign-in failed — try again" }
         if health["status"] as? String == "healthy" { return "Connected" }
         if oauth == "signed_in" && pending { return "Signed in — ready to discover tools" }

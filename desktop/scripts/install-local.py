@@ -97,7 +97,9 @@ for app in apps {
         fputs("Another release copy is running. Quit it before installing.\\n", stderr); exit(1)
     }
 }
-for app in apps { if !app.terminate() { exit(1) } }
+DistributedNotificationCenter.default().postNotificationName(Notification.Name("app.umbod.desktop.prepareForLocalInstall"), object: target.path, userInfo: nil, deliverImmediately: true)
+RunLoop.current.run(until: Date().addingTimeInterval(1))
+for app in apps where !app.isTerminated { if !app.terminate() { exit(1) } }
 let deadline = Date().addingTimeInterval(15)
 while apps.contains(where: { !$0.isTerminated }) {
     if Date() > deadline { fputs("Umbod did not quit. Close open settings or confirmation sheets, quit Umbod, then rerun this installer. The installed app has not been replaced.\\n", stderr); exit(1) }
