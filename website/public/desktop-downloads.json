@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
   "status": "available",
-  "version": "0.2.2",
-  "tag": "desktop-v0.2.2",
-  "sourceCommit": "cba870bfcb1f4f7848303e188fb6a6fc8651dd9d",
+  "version": "0.2.3",
+  "tag": "desktop-v0.2.3",
+  "sourceCommit": "46ba370df222db5c3968cc070e29f2d393d7bef5",
   "channel": "unsigned-prerelease",
   "assets": {
     "macos-arm64": {
-      "url": "https://github.com/computerlovetech/umbod/releases/download/desktop-v0.2.2/Umbod-0.2.2-arm64.dmg",
-      "sha256": "484e2d4abaf868d3d0ecaf7d66dff8e86aa4292566897086a3289759b510fd8e",
-      "size": 162401379
+      "url": "https://github.com/computerlovetech/umbod/releases/download/desktop-v0.2.3/Umbod-0.2.3-arm64.dmg",
+      "sha256": "262129d193a1bba91cb7b2342280d47ee8b6f9b573ca9da874155922580e0360",
+      "size": 162574083
     },
     "windows-x64": {
-      "url": "https://github.com/computerlovetech/umbod/releases/download/desktop-v0.2.2/Umbod-0.2.2-release-win-x64.zip",
-      "sha256": "498373682916cc99c5486b76c6747fe0a6427996197e60613f73564421ef7dda",
-      "size": 78183606
+      "url": "https://github.com/computerlovetech/umbod/releases/download/desktop-v0.2.3/Umbod-0.2.3-release-win-x64.zip",
+      "sha256": "b1b859de826ee5d6d2c0f04dae658c51830a9e25fbac84ebcedf24759c7953d9",
+      "size": 78183383
     }
   }
 }
