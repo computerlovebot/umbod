@@ -61,7 +61,7 @@ import Foundation
             servers.append(server)
             if let key = server["host_id"] as? String { oauthStatuses[id] = hostOAuth[key] ?? (server["oauth"] as? Bool == true ? "signed_in" : "signed_out") }
             let health = item["health"] as? [String: Any] ?? [:]
-            statuses[id] = health["status"] as? String == "healthy" ? "Connected" : "Disconnected"
+            statuses[id] = Self.connectionStatus(health: health, oauth: oauthStatuses[id] ?? "", pending: false)
             let catalog = try await send("GET", connector(id) + "/tools")
             for tool in catalog["tools"] as? [[String: Any]] ?? [] {
                 guard let name = tool["name"] as? String else { continue }
@@ -81,7 +81,7 @@ import Foundation
             pending["id"] = id; pending["host_id"] = key
             servers.append(pending)
             oauthStatuses[id] = hostOAuth[key] ?? (value["oauth"] as? Bool == true ? "signed_in" : "signed_out")
-            statuses[id] = "Not connected — open connection settings to sign in or connect"
+            statuses[id] = Self.connectionStatus(health: [:], oauth: oauthStatuses[id] ?? "", pending: true)
         }
         var result = host
         result["oauth_status"] = oauthStatuses
@@ -118,10 +118,22 @@ import Foundation
         } else {
             connectorID = id
             if prepared["connection_changed"] as? Bool != false {
-                _ = try await send("PUT", connector(id) + "/configuration", configuration)
+                do {
+                    _ = try await send("PUT", connector(id) + "/configuration", configuration)
+                } catch {
+                    // The local proxy already holds the saved connection. Keep its
+                    // identity and permissions while guided setup repairs sign-in.
+                    let state = try await send("GET", "/desktop/state")
+                    let authentication = state["oauth_status"] as? [String: String] ?? [:]
+                    guard authentication[hostID] == "sign_in_required" else { throw error }
+                }
             }
             result = [:]
-            _ = try await send("PATCH", connector(id), ["display_name": draft["name"] as? String ?? "Connector"])
+            let current = try await send("GET", connector(id))
+            let name = draft["name"] as? String ?? "Connector"
+            if current["display_name"] as? String != name {
+                _ = try await send("PATCH", connector(id), ["display_name": name])
+            }
         }
         _ = try await send("PUT", "/desktop/upstreams/" + component(hostID) + "/binding", ["connector_id": connectorID])
         return ["server": ["id": connectorID]]
@@ -130,13 +142,35 @@ import Foundation
     public func grant(_ identity: String, allow: Bool) async throws -> [String: Any] {
         guard let separator = identity.firstIndex(of: ".") else { throw ContractError.message("Invalid tool identity") }
         let id = String(identity[..<separator]), tool = String(identity[identity.index(after: separator)...])
+        return try await grantTools(id, tools: [tool], allow: allow)
+    }
+
+    public func grantTools(_ id: String, tools: [String], allow: Bool) async throws -> [String: Any] {
+        guard !id.isEmpty, !id.hasPrefix("pending:"), !tools.isEmpty,
+              tools.allSatisfy({ !$0.isEmpty }), Set(tools).count == tools.count else {
+            throw ContractError.message("Choose discovered tools from one connector.")
+        }
         _ = try await send("POST", "/api/admin/mcp-permissions/groups/desktop-owner")
-        // Tool enablement includes publication; discovery alone does not expose tools.
-        // This also repairs connectors saved by older desktop builds without publication.
         if allow { _ = try await send("PUT", connector(id) + "/publication") }
-        // Revoke activation first; only grant permission after activation succeeds.
-        _ = try await send("PUT", connector(id) + "/tools/activation", ["tools": [["tool_id": tool, "activation_status": allow ? "enabled" : "disabled"]]])
-        return try await send("PUT", "/api/admin/mcp-permissions/groups/desktop-owner/permissions", ["capabilities": [["connector_id": id, "capability_kind": "tool", "capability_key": tool, "permission_status": allow ? "enabled" : "disabled"]]])
+        _ = try await send("PUT", connector(id) + "/tools/activation", ["tools": tools.map {
+            ["tool_id": $0, "activation_status": allow ? "enabled" : "disabled"]
+        }])
+        return try await send("PUT", "/api/admin/mcp-permissions/groups/desktop-owner/permissions", ["capabilities": tools.map {
+            ["connector_id": id, "capability_kind": "tool", "capability_key": $0, "permission_status": allow ? "enabled" : "disabled"]
+        }])
+    }
+
+    public static func connectionStatus(health: [String: Any], oauth: String, pending: Bool) -> String {
+        if oauth == "pending" { return "Waiting for sign-in…" }
+        if oauth == "sign_in_required" || health["reason"] as? String == "auth_rejected" {
+            return "Sign-in required"
+        }
+        if oauth == "failed" { return "Sign-in failed — try again" }
+        if health["status"] as? String == "healthy" { return "Connected" }
+        if oauth == "signed_in" && pending { return "Signed in — ready to discover tools" }
+        if health["reason"] as? String == "timeout" { return "Connection timed out — retry" }
+        if health["reason"] as? String == "unreachable" { return "Server unreachable — check connection" }
+        return pending ? "Not connected — continue setup" : "Disconnected"
     }
 
     public func action(_ body: [String: Any]) async throws -> [String: Any] {
@@ -188,6 +222,7 @@ import Foundation
             if let key = saved.first(where: { $0.value["id"] as? String == id })?.key { _ = try await send("DELETE", "/desktop/upstreams/" + component(key)) }
             return [:]
         case "grant": return try await grant(body["tool"] as? String ?? "", allow: body["allow"] as? Bool ?? false)
+        case "grant_tools": return try await grantTools(id, tools: body["tools"] as? [String] ?? [], allow: body["allow"] as? Bool ?? false)
         case "secret_set": return try await send("PUT", "/desktop/credentials/" + component(body["reference"] as? String ?? ""), ["value": body["value"] ?? ""])
         case "secret_delete": return try await send("DELETE", "/desktop/credentials/" + component(body["reference"] as? String ?? ""))
         case "connection_setup", "connection_token": return try await send("GET", "/desktop/connection")

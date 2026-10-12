@@ -63,7 +63,7 @@ import UmbodCore
     func act(_ body: [String: Any], success: String = "") {
         Task { busy = true; error = ""; activity = body["action"] as? String == "connect" ? "Connecting and discovering tools…" : "Updating connector…"; defer { busy = false; activity = "" }
             do { _ = try await backend.request(body); try await refresh(); notice = success }
-            catch { self.error = error.localizedDescription }
+            catch { self.error = error.localizedDescription; try? await refresh() }
         }
     }
     func copy(_ text: String, message: String = "Copied to clipboard") {
@@ -83,7 +83,10 @@ import UmbodCore
                     try await refresh()
                     switch oauthStatuses[id] {
                     case "signed_in":
-                        notice = "Signed in. Connect to discover your tools."
+                        activity = "Signed in. Discovering tools…"
+                        _ = try await backend.request(["action": "connect", "id": id])
+                        try await refresh()
+                        notice = "Connected. Choose which tools your apps can use."
                         return
                     case "failed":
                         throw ContractError.message("Browser sign-in did not complete. Try again in Connection settings.")
@@ -92,7 +95,7 @@ import UmbodCore
                     try await Task.sleep(for: .seconds(2))
                 }
                 throw ContractError.message("Browser sign-in timed out. Try again in Connection settings.")
-            } catch { self.error = error.localizedDescription }
+            } catch { self.error = error.localizedDescription; try? await refresh() }
         }
     }
 
@@ -194,7 +197,7 @@ struct Workspace: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.background(Brand.canvas)
         }
-        .sheet(isPresented: $addingConnector) { ServerEditor(draft: ServerDraft(), onSaved: { selectedConnector = nil; page = .servers }).environmentObject(model) }
+        .sheet(isPresented: $addingConnector) { ServerEditor(draft: ServerDraft(), onSaved: { id in selectedConnector = id; page = .servers }).environmentObject(model) }
         .disabled(model.settingsPresented)
         .accessibilityHidden(model.settingsPresented)
         .overlay {
@@ -229,14 +232,23 @@ struct ServerEditor: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
     @StateObject private var editor: ConnectorEditor
-    private let onSaved: () -> Void
-    init(draft: ServerDraft, onSaved: @escaping () -> Void = {}) {
+    private let onSaved: (String) -> Void
+    init(draft: ServerDraft, onSaved: @escaping (String) -> Void = { _ in }) {
         _editor = StateObject(wrappedValue: ConnectorEditor(draft: draft))
         self.onSaved = onSaved
     }
     @State private var localError = ""
     @State private var authenticationExpanded = false
+    @State private var savedID: String?
     var body: some View {
+        if let savedID, let server = model.servers.first(where: {
+            $0["id"] as? String == savedID || (savedID.hasPrefix("pending:") && $0["host_id"] as? String == String(savedID.dropFirst(8)))
+        }) {
+            ConnectorManagementView(server: server, edit: { editor.draft = ServerDraft(server); self.savedID = nil }, continueSetup: {
+                dismiss()
+                onSaved(server["id"] as? String ?? savedID)
+            })
+        } else {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(editor.draft.id.isEmpty ? "Add connector" : "Edit connector").font(.system(size: 26, weight: .semibold))
@@ -252,7 +264,7 @@ struct ServerEditor: View {
                     TextEditor(text: $editor.draft.arguments).accessibilityIdentifier("connector.arguments").font(.system(.body, design: .monospaced)).frame(height: 65).padding(8).background(Brand.canvas).overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.border).allowsHitTesting(false))
                 } else {
                     TextField("Endpoint URL", text: $editor.draft.url).accessibilityIdentifier("connector.url")
-                    Text("If sign-in is needed, you can do that after saving.").font(.caption).foregroundStyle(Brand.muted)
+                    Text("Next, we’ll help you sign in and choose tools.").font(.caption).foregroundStyle(Brand.muted)
                 }
                 Button { authenticationExpanded.toggle() } label: {
                     HStack {
@@ -280,6 +292,7 @@ struct ServerEditor: View {
         .onChange(of: editor.draft.transport) { _, transport in
             if editor.credential.isEmpty { editor.credentialName = transport == "http" ? "Authorization" : "" }
         }
+        }
     }
     func save() {
         Task {
@@ -287,8 +300,12 @@ struct ServerEditor: View {
                 localError = ""
                 try await editor.save { try await model.backend.request($0) }
                 try await model.refresh()
-                dismiss()
-                onSaved()
+                if model.statuses[editor.draft.id] == "Connected" {
+                    dismiss()
+                    onSaved(editor.draft.id)
+                } else {
+                    savedID = editor.draft.id
+                }
             } catch { localError = error.localizedDescription }
         }
     }

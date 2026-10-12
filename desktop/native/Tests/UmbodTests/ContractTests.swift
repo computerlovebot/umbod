@@ -11,6 +11,9 @@ import UmbodCore
         precondition(AdministrationClient.errorMessage([:], statusCode: 503) == "Backend request failed (503).")
         ContractTests.log("PASS: native backend errors preserve structured and string messages")
         if CommandLine.arguments.contains("--updates-only") { return }
+        precondition(AdministrationClient.connectionStatus(health: ["status": "healthy"], oauth: "sign_in_required", pending: false) == "Sign-in required", "Auth failure overrides cached health")
+        precondition(AdministrationClient.connectionStatus(health: ["reason": "timeout"], oauth: "signed_in", pending: false) == "Connection timed out — retry", "Network failure is not an auth failure")
+        precondition(AdministrationClient.connectionStatus(health: [:], oauth: "signed_out", pending: true) == "Not connected — continue setup")
         precondition(ActivationState([:]).stage == .choose)
         let journey: [String: Any] = ["client":"c", "server":"s", "configured":false, "activated":false]
         precondition(ActivationState(["activation":journey]).stage == .connect)
@@ -76,6 +79,15 @@ import UmbodCore
         let again = try await backend.request(["action": "connection_setup"])
         precondition(again["token"] as? String == connectionID)
         let toolName = (connected["tools"] as! [[String: Any]]).first { ($0["name"] as? String ?? "").hasSuffix(".echo") }!["name"] as! String
+        let fixtureTools = (connected["tools"] as! [[String: Any]]).map { String(($0["name"] as! String).dropFirst(editor.draft.id.count + 1)) }
+        _ = try await backend.request(["action": "grant_tools", "id": editor.draft.id, "tools": fixtureTools, "allow": true])
+        let bulkEnabled = try await backend.request(["action": "status"])
+        precondition((bulkEnabled["allowed_tools"] as! [String]).count == fixtureTools.count)
+        _ = try await backend.request(["action": "grant_tools", "id": editor.draft.id, "tools": fixtureTools, "allow": false])
+        let bulkDisabled = try await backend.request(["action": "status"])
+        precondition((bulkDisabled["allowed_tools"] as! [String]).isEmpty)
+        precondition((bulkDisabled["tools"] as! [[String: Any]]).count == fixtureTools.count)
+        log("PASS: bulk enable/disable updates real permissions and retains discovered tools")
         _ = try await backend.request(["action": "grant", "tool": toolName, "allow": true])
         let allowed = try await backend.request(["action": "status"])
         precondition((allowed["allowed_tools"] as? [String])?.contains(toolName) == true)

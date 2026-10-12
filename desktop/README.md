@@ -35,7 +35,7 @@ Connections and permissions remain in `~/Library/Application Support/Umbod`; sec
 
 ## Use and lifecycle
 
-Add local executable or remote Streamable HTTP connectors, rediscover their tools, then explicitly enable tools. New tools start disabled. Permission changes apply to subsequent calls from every connected client. Settings → MCP provides bridge configuration. Credentials remain in macOS Keychain; there is no plaintext fallback.
+Add local executable or remote Streamable HTTP connectors. Saving an HTTP connector continues directly into browser sign-in when the server requests it; successful sign-in automatically discovers tools. The setup sheet then leads to tool selection. Enable individual tools or review the connector-wide Enable all / Disable all action. New tools start disabled. Permission changes apply to subsequent calls from every connected client. Settings → MCP provides bridge configuration. Credentials remain in macOS Keychain; there is no plaintext fallback.
 
 On macOS, first launch imports existing `config.json` with a resumable journal and preserves the source and a `config.before-python.json` backup. Existing Keychain entries are retained. Import failures remain visible and retry on reopening/restarting; restore missing credentials or executables first. The saved MCP port and existing agent token hashes remain valid. Shared-backend tool names can differ, so clients should refresh their tool catalogs. The old `umbod-gateway` command remains a Python launcher for existing bridge configurations.
 

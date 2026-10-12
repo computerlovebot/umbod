@@ -67,9 +67,9 @@ struct ServersView: View {
         }
         .sheet(item: $sheet) { route in
             switch route {
-            case .add: ServerEditor(draft: ServerDraft())
+            case .add: ServerEditor(draft: ServerDraft(), onSaved: { selectedConnector = $0 })
             case .edit(let id):
-                if let server = connector(id) { ServerEditor(draft: ServerDraft(server)) }
+                if let server = connector(id) { ServerEditor(draft: ServerDraft(server), onSaved: { selectedConnector = $0 }) }
             case .manage(let id):
                 if let server = connector(id) {
                     ConnectorManagementView(server: server, edit: { sheet = .edit(id) })
@@ -127,12 +127,14 @@ struct ConnectorManagementView: View {
     @Environment(\.dismiss) private var dismiss
     let server: [String: Any]
     var edit: () -> Void
+    var continueSetup: (() -> Void)? = nil
     @State private var clientID = ""
     @State private var advancedSignIn = false
     private var id: String { server["id"] as? String ?? "" }
     private var oauthStatus: String {
         switch model.oauthStatuses[id] {
         case "pending": "Waiting for browser sign-in…"
+        case "sign_in_required": "Sign-in required"
         case "signed_in": "Signed in"
         case "failed": "Sign-in failed. Try again."
         default: server["oauth"] as? Bool == true ? "Signed in" : "Not signed in"
@@ -147,6 +149,11 @@ struct ConnectorManagementView: View {
                     .accessibilityIdentifier("connector.progress")
             }
             Text(model.statuses[id] ?? "Disconnected").foregroundStyle(Brand.muted)
+            if let continueSetup, model.statuses[id] == "Connected" {
+                Text("Your connection is ready. Next, choose which tools your apps can use.")
+                Button("Choose tools", action: continueSetup).buttonStyle(BrandButtonStyle(primary: true))
+                    .accessibilityIdentifier("connector.choose-tools")
+            }
             Panel {
                 Text("Connection").font(.headline)
                 Text(server["transport"] as? String == "stdio" ? (server["command"] as? String ?? "") : (server["url"] as? String ?? "")).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
@@ -175,10 +182,15 @@ struct ConnectorManagementView: View {
                         Button("Refresh token") { model.act(["action":"oauth_refresh", "id":id], success: "Token refreshed and transport reconnected.") }
                         Button("Sign out") { model.act(["action":"oauth_logout", "id":id]) }
                     }.disabled(model.busy)
-                    Text("After signing in, connect to discover tools.").font(.caption).foregroundStyle(Brand.muted)
+                    Text("Signing in automatically connects and discovers your tools.").font(.caption).foregroundStyle(Brand.muted)
                 }
             }
         }.padding(28).frame(width: 600).modifier(BrandAppearance())
+        .task {
+            if continueSetup != nil && model.statuses[id] == "Sign-in required" && !model.busy {
+                model.signIn(id, clientID: "")
+            }
+        }
     }
 }
 struct ConnectorToolsView: View {
@@ -188,6 +200,7 @@ struct ConnectorToolsView: View {
     @State private var query = ""
     @State private var filter = "All tools"
     @State private var selectedName: String?
+    @State private var bulkAllow: Bool?
     private var id: String { connector["id"] as? String ?? "" }
     private var tools: [[String: Any]] {
         model.tools.filter { ($0["name"] as? String ?? "").hasPrefix(id + ".") }
@@ -218,6 +231,15 @@ struct ConnectorToolsView: View {
                 TextField("Search tools…", text: $query).frame(maxWidth: 340)
                 Picker("Show", selection: $filter) { ForEach(["All tools", "Enabled", "Disabled"], id: \.self) { Text($0) } }.frame(width: 180)
                 Spacer()
+                Button("Enable all") { bulkAllow = true }
+                    .disabled(model.busy || tools.isEmpty || tools.allSatisfy { model.allowedTools.contains($0["name"] as? String ?? "") })
+                    .accessibilityIdentifier("tools.enable-all")
+                Button("Disable all") { bulkAllow = false }
+                    .disabled(model.busy || !tools.contains { model.allowedTools.contains($0["name"] as? String ?? "") })
+                    .accessibilityIdentifier("tools.disable-all")
+            }
+            if model.busy {
+                HStack { ProgressView().controlSize(.small); Text(model.activity) }
             }
             if tools.isEmpty {
                 ContentUnavailableView("No tools discovered", systemImage: "wrench.and.screwdriver", description: Text("Open connection settings to connect or rediscover tools."))
@@ -260,6 +282,17 @@ struct ConnectorToolsView: View {
                     }.frame(maxWidth: .infinity).frame(height: 470).background(Brand.soft, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
+        }
+        .confirmationDialog(bulkAllow == true ? "Enable all \(tools.count) tools for every connected app?" : "Disable all tools for every connected app?", isPresented: Binding(get: { bulkAllow != nil }, set: { if !$0 { bulkAllow = nil } }), titleVisibility: .visible) {
+            Button(bulkAllow == true ? "Enable all tools" : "Disable all tools") {
+                if let allow = bulkAllow {
+                    let names = tools.compactMap { $0["name"] as? String }.map { String($0.dropFirst(id.count + 1)) }
+                    model.act(["action": "grant_tools", "id": id, "tools": names, "allow": allow], success: allow ? "All tools enabled." : "All tools disabled.")
+                }
+                bulkAllow = nil
+            }
+        } message: {
+            Text(bulkAllow == true ? "This includes any editing or deletion tools in this connector. It applies to all tools, including those hidden by the current filter." : "The connector stays connected. You can enable its tools again later.")
         }
     }
     private func permissionToggle(_ name: String) -> some View {
