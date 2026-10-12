@@ -344,6 +344,9 @@ class Fixture:
                     "serverInfo": {"name": "umbod-oauth-fixture", "version": "1"},
                 }
             elif method == "tools/list":
+                # Real providers can take longer than HTTPX's default five seconds.
+                # Exercise that boundary in the exact-DMG OAuth release journey.
+                time.sleep(6)
                 result = {
                     "tools": [
                         {
