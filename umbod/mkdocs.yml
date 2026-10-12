@@ -80,4 +80,8 @@ plugins:
 hooks:
   - docs/hooks.py
 
+exclude_docs: |
+  __pycache__/
+  *.pyc
+
 strict: true

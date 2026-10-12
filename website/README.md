@@ -118,3 +118,7 @@ until the manifest procedure below succeeds.
 
 Follow [the manifest application procedure](../desktop/docs/APPLY-MANIFEST.md) to
 verify published assets and prepare the website PR. No frontend credentials are used.
+
+## Desktop OAuth identity
+
+`public/oauth/client-metadata.json` is Umbod Desktop’s public OAuth client identity for servers supporting Client ID Metadata Documents. It contains no user credentials. Native clients use PKCE and the loopback `/desktop/oauth/callback` path; RFC 8252 permits the local port to vary. Keep its exact public URL aligned with `CLIENT_METADATA_URL` in the desktop OAuth adapter. Publish this asset before enabling hosted identity sign-in in a released desktop build.
