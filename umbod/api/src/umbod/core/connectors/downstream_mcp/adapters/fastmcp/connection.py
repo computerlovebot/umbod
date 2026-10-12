@@ -55,6 +55,10 @@ class _FastMCPConnection:
         return self._configuration
 
     def _create_http_client(self, **kwargs: object) -> httpx2.AsyncClient:
+        # Match MCP's streaming transport defaults. HTTPX's implicit 5-second
+        # read timeout can abort valid discovery while other catalogs are loading.
+        # The probe/invocation layer still enforces its overall deadline.
+        kwargs.setdefault("timeout", httpx2.Timeout(30.0, read=300.0))
         kwargs["follow_redirects"] = False
         kwargs["verify"] = self._tls_verification
         return httpx2.AsyncClient(**kwargs)

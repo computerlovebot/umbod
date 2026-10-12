@@ -161,3 +161,48 @@ def test_exception_classification_terminates_for_cyclic_exception_chain() -> Non
     result = connection._classify_exception(outer_error)
 
     assert result == ProbeFailed(code="unreachable")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("deadline, succeeds", [(15, True), (1, False)])
+async def test_slow_catalog_respects_probe_deadline_not_httpx_default(deadline, succeeds):
+    import asyncio
+    import socket
+
+    import uvicorn
+    from fastmcp import FastMCP
+    from fastmcp.server.middleware import Middleware
+
+    class SlowCatalog(Middleware):
+        async def on_list_tools(self, context, call_next):
+            await asyncio.sleep(6)
+            return await call_next(context)
+
+    fixture = FastMCP("slow-catalog", middleware=[SlowCatalog()])
+
+    @fixture.tool
+    def echo(text: str) -> str:
+        return text
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(128)
+        endpoint = f"http://127.0.0.1:{listener.getsockname()[1]}/mcp"
+        server = uvicorn.Server(uvicorn.Config(fixture.http_app(path="/mcp"), log_level="error"))
+        task = asyncio.create_task(server.serve(sockets=[listener]))
+        try:
+            async with asyncio.timeout(10):
+                while not server.started:
+                    if task.done():
+                        await task
+                    await asyncio.sleep(0.01)
+            probe = FastMCPDownstreamConnection(True, deadline, FastMCPDownstreamConnectionFactory(True))
+            result = await probe.probe(NoAuthConnectionConfiguration(endpoint_url=endpoint))
+            if succeeds:
+                assert isinstance(result, ProbeCapabilities)
+                assert [tool.name for tool in result.capabilities.tools] == ["echo"]
+            else:
+                assert result == ProbeFailed(code="timeout")
+        finally:
+            server.should_exit = True
+            await task
