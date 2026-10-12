@@ -5,6 +5,11 @@ import UmbodCore
     @MainActor static func main() async throws {
         try updateTests()
         try await connectorEditorTests()
+        precondition(AdministrationClient.errorMessage(["detail": ["code": "auth_rejected", "message": "The downstream server rejected authentication."]], statusCode: 422) == "The downstream server rejected authentication. Sign in with browser from the connector page, or check its authentication credentials.")
+        precondition(AdministrationClient.errorMessage(["detail": ["code": "unreachable", "message": "The downstream MCP server could not be reached."]], statusCode: 422) == "The downstream MCP server could not be reached.")
+        precondition(AdministrationClient.errorMessage(["detail": "Invalid desktop connector or missing credential"], statusCode: 422) == "Invalid desktop connector or missing credential")
+        precondition(AdministrationClient.errorMessage([:], statusCode: 503) == "Backend request failed (503).")
+        ContractTests.log("PASS: native backend errors preserve structured and string messages")
         if CommandLine.arguments.contains("--updates-only") { return }
         precondition(ActivationState([:]).stage == .choose)
         let journey: [String: Any] = ["client":"c", "server":"s", "configured":false, "activated":false]
@@ -135,6 +140,17 @@ import UmbodCore
         restoredAgent.standardOutput = FileHandle.nullDevice
         try restoredAgent.run(); restoredAgent.waitUntilExit()
         precondition(restoredAgent.terminationStatus == 0, "Persisted permissions and transport must survive restart")
+        var retainedDraft = server
+        retainedDraft.name = "Retained connector"
+        let retainedEditor = ConnectorEditor(draft: retainedDraft)
+        try await retainedEditor.save { try await secondUI.request($0) }
+        _ = try await secondUI.request(["action": "server_remove", "id": editor.draft.id])
+        let afterRemoval = try await secondUI.request(["action": "status"])
+        let remaining = afterRemoval["servers"] as! [[String: Any]]
+        precondition(!remaining.contains { $0["id"] as? String == editor.draft.id }, "Removal must revoke existing grants before deleting")
+        precondition(remaining.contains { $0["id"] as? String == retainedEditor.draft.id }, "Removal must preserve other connectors")
+        precondition(!(afterRemoval["allowed_tools"] as! [String]).contains(toolName))
+        log("PASS: removing an enabled connector revokes permissions and preserves other connectors")
         let movedDirectory = persistentDirectory.deletingLastPathComponent().appendingPathComponent("umbod-test-moved-" + UUID().uuidString)
         try FileManager.default.moveItem(at: persistentDirectory, to: movedDirectory)
         try FileManager.default.createDirectory(at: persistentDirectory, withIntermediateDirectories: true)

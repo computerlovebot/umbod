@@ -19,9 +19,20 @@ import Foundation
         let (data, response) = try await URLSession.shared.data(for: request)
         let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ContractError.message(value["detail"] as? String ?? "Backend request failed (\((response as? HTTPURLResponse)?.statusCode ?? 0)).")
+            throw ContractError.message(Self.errorMessage(value, statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0))
         }
         return value
+    }
+
+    public static func errorMessage(_ body: [String: Any], statusCode: Int) -> String {
+        if let detail = body["detail"] as? String, !detail.isEmpty { return detail }
+        if let detail = body["detail"] as? [String: Any], let message = detail["message"] as? String, !message.isEmpty {
+            if detail["code"] as? String == "auth_rejected" {
+                return message + " Sign in with browser from the connector page, or check its authentication credentials."
+            }
+            return message
+        }
+        return "Backend request failed (\(statusCode))."
     }
     func component(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
@@ -160,6 +171,19 @@ import Foundation
             let state = try await send("GET", "/desktop/state")
             let saved = state["servers"] as? [String: [String: Any]] ?? [:]
             if id.hasPrefix("pending:") { return try await send("DELETE", "/desktop/upstreams/" + component(String(id.dropFirst(8)))) }
+            // The removal confirmation includes permissions, including stale grants
+            // for tools that are no longer present in a disconnected catalog.
+            let permissions = try await send("GET", "/api/admin/mcp-permissions/groups/desktop-owner")
+            let capabilities = (permissions["capabilities"] as? [[String: Any]] ?? []).filter { $0["connector_id"] as? String == id }.map { grant in
+                var change = grant
+                change["permission_status"] = "disabled"
+                return change
+            }
+            let connectors: [[String: Any]] = (permissions["connector_ids"] as? [String] ?? []).contains(id)
+                ? [["connector_id": id, "permission_status": "disabled"]] : []
+            if !capabilities.isEmpty || !connectors.isEmpty {
+                _ = try await send("PUT", "/api/admin/mcp-permissions/groups/desktop-owner/permissions", ["capabilities": capabilities, "connectors": connectors])
+            }
             _ = try await send("DELETE", connector(id))
             if let key = saved.first(where: { $0.value["id"] as? String == id })?.key { _ = try await send("DELETE", "/desktop/upstreams/" + component(key)) }
             return [:]
