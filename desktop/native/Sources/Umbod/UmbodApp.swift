@@ -31,6 +31,8 @@ import UmbodCore
     @Published var busy = false
     @Published var activity = ""
     @Published var oauthStatuses: [String: String] = [:]
+    @Published var oauthErrors: [String: String] = [:]
+    @Published var signingInID: String?
     @Published var online = false
     private var starting = false
     func start() async {
@@ -58,6 +60,7 @@ import UmbodCore
         allowedTools = Set(state["allowed_tools"] as? [String] ?? [])
         statuses = state["statuses"] as? [String: String] ?? [:]
         oauthStatuses = state["oauth_status"] as? [String: String] ?? [:]
+        oauthErrors = state["oauth_errors"] as? [String: String] ?? [:]
         online = backend.isRunning
     }
     func act(_ body: [String: Any], success: String = "") {
@@ -69,12 +72,14 @@ import UmbodCore
     func copy(_ text: String, message: String = "Copied to clipboard") {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); notice = message
     }
-    func signIn(_ id: String, clientID: String) {
+    func signIn(_ id: String, clientID: String, scopes: String? = nil) {
         Task {
-            busy = true; error = ""; activity = "Opening browser sign-in…"
-            defer { busy = false; activity = "" }
+            busy = true; signingInID = id; error = ""; activity = "Opening browser sign-in…"
+            defer { busy = false; signingInID = nil; activity = "" }
             do {
-                let result = try await backend.request(["action": "oauth_begin", "id": id, "client_id": clientID])
+                var request: [String: Any] = ["action": "oauth_begin", "id": id, "client_id": clientID]
+                if let scopes { request["scopes"] = scopes }
+                let result = try await backend.request(request)
                 if let value = result["url"] as? String, !value.isEmpty, let url = URL(string: value) {
                     guard NSWorkspace.shared.open(url) else { throw ContractError.message("Could not open your browser. Try signing in again.") }
                 }
@@ -89,7 +94,7 @@ import UmbodCore
                         notice = "Connected. Choose which tools your apps can use."
                         return
                     case "failed":
-                        throw ContractError.message("Browser sign-in did not complete. Try again in Connection settings.")
+                        throw ContractError.message(oauthErrors[id] ?? "Browser sign-in did not complete. Try again in Connection settings.")
                     default: break
                     }
                     try await Task.sleep(for: .seconds(2))

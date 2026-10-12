@@ -46,6 +46,8 @@ import Foundation
         var servers: [[String: Any]] = [], tools: [[String: Any]] = [], enabled: [String] = []
         var statuses: [String: String] = [:]
         var oauthStatuses: [String: String] = [:]
+        var oauthErrors: [String: String] = [:]
+        let hostOAuthErrors = host["oauth_errors"] as? [String: String] ?? [:]
         let hostOAuth = host["oauth_status"] as? [String: String] ?? [:]
         let permissions = try await send("GET", "/api/admin/mcp-permissions/groups/desktop-owner")
         let grants = permissions["capabilities"] as? [[String: Any]] ?? []
@@ -60,6 +62,7 @@ import Foundation
             }
             servers.append(server)
             if let key = server["host_id"] as? String { oauthStatuses[id] = hostOAuth[key] ?? (server["oauth"] as? Bool == true ? "signed_in" : "signed_out") }
+            if let key = server["host_id"] as? String { oauthErrors[id] = hostOAuthErrors[key] }
             let health = item["health"] as? [String: Any] ?? [:]
             statuses[id] = Self.connectionStatus(health: health, oauth: oauthStatuses[id] ?? "", pending: false)
             let catalog = try await send("GET", connector(id) + "/tools")
@@ -81,10 +84,12 @@ import Foundation
             pending["id"] = id; pending["host_id"] = key
             servers.append(pending)
             oauthStatuses[id] = hostOAuth[key] ?? (value["oauth"] as? Bool == true ? "signed_in" : "signed_out")
+            oauthErrors[id] = hostOAuthErrors[key]
             statuses[id] = Self.connectionStatus(health: [:], oauth: oauthStatuses[id] ?? "", pending: true)
         }
         var result = host
         result["oauth_status"] = oauthStatuses
+        result["oauth_errors"] = oauthErrors
         result["servers"] = servers; result["tools"] = tools; result["allowed_tools"] = enabled; result["statuses"] = statuses
         return result
     }

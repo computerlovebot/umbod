@@ -129,6 +129,7 @@ struct ConnectorManagementView: View {
     var edit: () -> Void
     var continueSetup: (() -> Void)? = nil
     @State private var clientID = ""
+    @State private var scopes = ""
     @State private var advancedSignIn = false
     private var id: String { server["id"] as? String ?? "" }
     private var oauthStatus: String {
@@ -144,9 +145,14 @@ struct ConnectorManagementView: View {
         VStack(alignment: .leading, spacing: 20) {
             HStack { Text(server["name"] as? String ?? "Connection settings").font(.title2.bold()); Spacer(); Button("Done") { dismiss() } }
             StatusMessages()
-            if model.busy {
+            if model.busy && (model.signingInID == nil || model.signingInID == id) {
                 HStack { ProgressView().controlSize(.small); Text(model.activity) }
                     .accessibilityIdentifier("connector.progress")
+            }
+            if let signingInID = model.signingInID, signingInID != id {
+                let name = model.servers.first { $0["id"] as? String == signingInID }?["name"] as? String ?? "another connector"
+                Text("Finish signing in to \(name) in your browser, then continue here.")
+                    .foregroundStyle(Brand.muted)
             }
             Text(model.statuses[id] ?? "Disconnected").foregroundStyle(Brand.muted)
             if let continueSetup, model.statuses[id] == "Connected" {
@@ -168,7 +174,7 @@ struct ConnectorManagementView: View {
                     Text(oauthStatus).font(.callout).foregroundStyle(Brand.muted)
                     Button { advancedSignIn.toggle() } label: {
                         HStack {
-                            Text("Use a custom client ID")
+                            Text("Advanced sign-in options")
                             Spacer()
                             Image(systemName: advancedSignIn ? "chevron.up" : "chevron.down")
                         }.frame(maxWidth: .infinity).contentShape(Rectangle())
@@ -176,9 +182,11 @@ struct ConnectorManagementView: View {
                     if advancedSignIn {
                         TextField("Public client ID (optional)", text: $clientID)
                         Text("Only needed when your provider supplies a client ID.").font(.caption)
+                        TextField("OAuth scopes (optional, space-separated)", text: $scopes)
+                        Text("Limit the permissions requested at sign-in. Leave blank to use the provider's defaults.").font(.caption)
                     }
                     HStack {
-                        Button("Sign in with browser") { model.signIn(id, clientID: clientID) }
+                        Button("Sign in with browser") { model.signIn(id, clientID: clientID, scopes: scopes) }
                         Button("Refresh token") { model.act(["action":"oauth_refresh", "id":id], success: "Token refreshed and transport reconnected.") }
                         Button("Sign out") { model.act(["action":"oauth_logout", "id":id]) }
                     }.disabled(model.busy)
@@ -187,6 +195,9 @@ struct ConnectorManagementView: View {
             }
         }.padding(28).frame(width: 600).modifier(BrandAppearance())
         .task {
+            model.notice = ""
+            model.error = model.oauthErrors[id] ?? ""
+            scopes = server["oauth_scopes"] as? String ?? ""
             if continueSetup != nil && model.statuses[id] == "Sign-in required" && !model.busy {
                 model.signIn(id, clientID: "")
             }
@@ -283,6 +294,7 @@ struct ConnectorToolsView: View {
                 }
             }
         }
+        .task(id: id) { model.notice = ""; model.error = model.oauthErrors[id] ?? "" }
         .confirmationDialog(bulkAllow == true ? "Enable all \(tools.count) tools for every connected app?" : "Disable all tools for every connected app?", isPresented: Binding(get: { bulkAllow != nil }, set: { if !$0 { bulkAllow = nil } }), titleVisibility: .visible) {
             Button(bulkAllow == true ? "Enable all tools" : "Disable all tools") {
                 if let allow = bulkAllow {
