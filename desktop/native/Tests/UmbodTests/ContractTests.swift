@@ -3,6 +3,7 @@ import UmbodCore
 @main struct ContractTests {
     static func log(_ value: String) { FileHandle.standardOutput.write(Data((value + "\n").utf8)) }
     @MainActor static func main() async throws {
+        toolPermissionQueueTests()
         try updateTests()
         try await connectorEditorTests()
         precondition(AdministrationClient.errorMessage(["detail": ["code": "auth_rejected", "message": "The downstream server rejected authentication."]], statusCode: 422) == "The downstream server rejected authentication. Sign in with browser from the connector page, or check its authentication credentials.")

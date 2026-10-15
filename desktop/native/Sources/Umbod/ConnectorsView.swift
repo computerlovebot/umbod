@@ -308,6 +308,9 @@ struct ConnectorToolsView: View {
                     Text("\(model.statuses[id] ?? "Disconnected") · \(tools.filter { model.allowedTools.contains($0["name"] as? String ?? "") }.count) of \(tools.count) tools enabled").foregroundStyle(Brand.muted)
                 }
                 Spacer()
+                HStack { ProgressView().controlSize(.small); Text("Saving permissions…").font(.caption) }
+                    .opacity(model.savingPermissions ? 1 : 0)
+                    .accessibilityHidden(!model.savingPermissions)
                 Button("Connection settings", action: manage)
             }
             Text("Enabled tools are available to every app connected to Umbod.").font(.callout).foregroundStyle(Brand.muted)
@@ -322,9 +325,6 @@ struct ConnectorToolsView: View {
                 Button("Disable all") { prepareBulk(tools, allow: false) }
                     .disabled(model.busy || !tools.contains { model.allowedTools.contains($0["name"] as? String ?? "") })
                     .accessibilityIdentifier("tools.disable-all")
-            }
-            if model.busy {
-                HStack { ProgressView().controlSize(.small); Text(model.activity) }
             }
             HStack {
                 Button("Select filtered (\(filtered.count))") { checkedTools.formUnion(filtered.compactMap { $0["name"] as? String }) }
@@ -400,7 +400,7 @@ struct ConnectorToolsView: View {
                     Spacer()
                     Button(bulkAllow == true ? "Enable these tools" : "Disable these tools") {
                         if let allow = bulkAllow {
-                            model.act(["action": "grant_tools", "id": id, "tools": bulkNames, "allow": allow], success: "Updated \(bulkNames.count) tools.")
+                            model.setToolPermissions(bulkNames.map { id + "." + $0 }, allow: allow, connectorID: id)
                         }
                         bulkAllow = nil
                     }.buttonStyle(.borderedProminent)
@@ -413,7 +413,7 @@ struct ConnectorToolsView: View {
         bulkAllow = allow
     }
     private func permissionToggle(_ name: String) -> some View {
-        Toggle("Allow \(String(name.dropFirst(id.count + 1)))", isOn: Binding(get: { model.allowedTools.contains(name) }, set: { model.act(["action":"grant", "tool":name, "allow":$0]) }))
+        Toggle("Allow \(String(name.dropFirst(id.count + 1)))", isOn: Binding(get: { model.allowedTools.contains(name) }, set: { model.setToolPermissions([name], allow: $0) }))
             .accessibilityIdentifier("tool.allow.\(String(name.dropFirst(id.count + 1)))").labelsHidden().toggleStyle(.switch).controlSize(.small).disabled(model.busy)
     }
 }

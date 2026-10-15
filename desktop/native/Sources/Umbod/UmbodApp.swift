@@ -22,7 +22,10 @@ import UmbodCore
     }
     @Published var servers: [[String: Any]] = []
     @Published var tools: [[String: Any]] = []
-    @Published var allowedTools: Set<String> = []
+    @Published private var permissions = ToolPermissionQueue()
+    private var permissionTask: Task<Void, Never>?
+    var allowedTools: Set<String> { permissions.allowedTools }
+    var savingPermissions: Bool { permissions.isSaving }
     @Published var statuses: [String: String] = [:]
     @Published var error = ""
     @Published var notice = ""
@@ -49,6 +52,7 @@ import UmbodCore
         catch { self.error = error.localizedDescription; online = false }
     }
     func refresh() async throws {
+        let permissionRevision = permissions.revision
         let state = try await backend.request(["action": "status"])
         if let migration = state["migration"] as? [String: Any], migration["status"] as? String == "needs_attention" {
             error = migration["error"] as? String ?? "Migration needs attention. Restart to retry."
@@ -61,7 +65,7 @@ import UmbodCore
         clientSetup = state["client_setup"] as? [String: Any] ?? [:]
         servers = state["servers"] as? [[String: Any]] ?? []
         tools = state["tools"] as? [[String: Any]] ?? []
-        allowedTools = Set(state["allowed_tools"] as? [String] ?? [])
+        permissions.refresh(Set(state["allowed_tools"] as? [String] ?? []), startedAt: permissionRevision)
         statuses = state["statuses"] as? [String: String] ?? [:]
         oauthStatuses = state["oauth_status"] as? [String: String] ?? [:]
         oauthErrors = state["oauth_errors"] as? [String: String] ?? [:]
@@ -76,6 +80,30 @@ import UmbodCore
                 if let id = body["id"] as? String, (body["action"] as? String)?.hasPrefix("oauth_") == true {
                     oauthErrors[id] = error.localizedDescription
                 } else { self.error = error.localizedDescription }
+            }
+        }
+    }
+    func setToolPermissions(_ names: [String], allow: Bool, connectorID: String? = nil) {
+        if permissionTask == nil { error = ""; notice = "" }
+        permissions.enqueue(names: names, allow: allow, connectorID: connectorID)
+        guard permissionTask == nil else { return }
+        permissionTask = Task {
+            defer { permissionTask = nil }
+            // Serialize writes, including bulk edits, so a later click always wins.
+            while permissions.isSaving {
+                while let edit = permissions.first {
+                    do {
+                        _ = try await backend.request(edit.request)
+                        permissions.complete(succeeded: true)
+                    } catch {
+                        permissions.complete(succeeded: false)
+                        self.error = "Could not save tool permissions for \(edit.names.joined(separator: ", ")): \(error.localizedDescription)"
+                    }
+                }
+                // Reconcile partial writes or uncertain network failures once the queue drains.
+                // A new click during this refresh is retained and drained on the next iteration.
+                do { try await refresh() }
+                catch { self.error = "Could not verify saved tool permissions: \(error.localizedDescription)" }
             }
         }
     }
