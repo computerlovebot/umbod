@@ -402,7 +402,7 @@ class DownstreamConnectorUnitOfWorkService:
             self._context.fault("catalog")
             await _delete_catalog(session, command.connector_id)
             await _write_health(session, command.health, self._context.fault)
-            await _reconcile_activation(session, command.connector_id, (), self._context.fault)
+            # Authorization invalidation suspends exposure, not saved tool choices.
             await _unpublish(
                 session, command.connector_id, self._context.fault, self._context.clock
             )
@@ -421,9 +421,11 @@ class DownstreamConnectorUnitOfWorkService:
                     ReplaceToolCatalog(snapshot=command.catalog),
                 )
             await _write_health(session, command.health, self._context.fault)
-            await _reconcile_activation(
-                session, command.connector_id, command.operation_names, self._context.fault
-            )
+            # A failed discovery is not an authoritative empty tool catalog.
+            if not isinstance(command.catalog, DeleteCatalog):
+                await _reconcile_activation(
+                    session, command.connector_id, command.operation_names, self._context.fault
+                )
 
         await self._run(mutate)
 

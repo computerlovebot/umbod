@@ -1,3 +1,7 @@
+from dataclasses import replace
+from umbod.core.activation import ActivationStatus, ActivationStore, CapabilityRef
+from umbod.core.connectors.downstream_mcp.management.unit_of_work import ApplyDiscoveredCatalog, DeleteCatalog, InvalidateDownstreamConnectorAggregate
+from umbod.core.connectors.downstream_mcp.models import ConnectorUnhealthy
 from umbod.core.configuration.persistence import AuthenticatedTextCipher
 from umbod.core.publishing.factories import create_connector_publishing_store
 from umbod.core.publishing.stores.schema import PUBLICATION_STATE_TABLE
@@ -26,16 +30,18 @@ class AggregateHarness(Protocol):
     catalogs: ToolCatalogStore
     health: ConnectorHealthStore
     publishing: ConnectorPublishingStore
+    activations: ActivationStore
 
 class Harness:
 
-    def __init__(self, unit_of_work: DownstreamConnectorUnitOfWork, definitions: ConnectorDefinitionStore, credentials: EncryptedCredentialStore, catalogs: ToolCatalogStore, health: ConnectorHealthStore, publishing: ConnectorPublishingStore) -> None:
+    def __init__(self, unit_of_work: DownstreamConnectorUnitOfWork, definitions: ConnectorDefinitionStore, credentials: EncryptedCredentialStore, catalogs: ToolCatalogStore, health: ConnectorHealthStore, publishing: ConnectorPublishingStore, activations: ActivationStore) -> None:
         self.unit_of_work = unit_of_work
         self.definitions = definitions
         self.credentials = credentials
         self.catalogs = catalogs
         self.health = health
         self.publishing = publishing
+        self.activations = activations
 
 def _command() -> CreateDownstreamConnectorAggregate:
     checked_at = datetime(2026, 1, 2, tzinfo=UTC)
@@ -49,7 +55,7 @@ async def _inmemory(_: Path, fault: Callable[[str], None]) -> AggregateHarness:
     database = create_inmemory_runtime().database
     activations = CapabilityActivationStoreService(database, CAPABILITY_ACTIVATION_STATE_TABLE)
     publishing = ConnectorPublishingStoreService(database, PUBLICATION_STATE_TABLE)
-    return Harness(InMemoryDownstreamConnectorUnitOfWork(definitions, credentials, catalogs, health, activations, publishing, fault), definitions, credentials, catalogs, health, publishing)
+    return Harness(InMemoryDownstreamConnectorUnitOfWork(definitions, credentials, catalogs, health, activations, publishing, fault), definitions, credentials, catalogs, health, publishing, activations)
 
 async def _sqlite(path: Path, fault: Callable[[str], None]) -> AggregateHarness:
     definitions = ConnectorDefinitionStoreService(create_sqlite_runtime(path).database, CONNECTOR_DEFINITION_TABLE)
@@ -57,9 +63,9 @@ async def _sqlite(path: Path, fault: Callable[[str], None]) -> AggregateHarness:
     catalogs = ToolCatalogStoreService(create_sqlite_runtime(path).database, TOOL_CATALOG_TABLE)
     health = ConnectorHealthStoreService(create_sqlite_runtime(path).database, CONNECTOR_HEALTH_TABLE)
     database = (await prepared_sqlite_runtime(path)).database
-    await create_capability_activation_store(database)
+    activations = await create_capability_activation_store(database)
     publishing = await create_connector_publishing_store(database)
-    return Harness(DownstreamConnectorUnitOfWorkService(create_sqlite_runtime(path).database, AuthenticatedTextCipher('unit-of-work-secret'), fault, utc_clock), definitions, credentials, catalogs, health, publishing)
+    return Harness(DownstreamConnectorUnitOfWorkService(create_sqlite_runtime(path).database, AuthenticatedTextCipher('unit-of-work-secret'), fault, utc_clock), definitions, credentials, catalogs, health, publishing, activations)
 
 @pytest.mark.parametrize('factory', (_inmemory, _sqlite), ids=('inmemory', 'sqlite'))
 @pytest.mark.asyncio
@@ -117,3 +123,49 @@ async def test_sqlite_concurrent_prefix_updates_commit_only_one_conflicting_clai
     stored_alpha = await first.definitions.get(ConnectorIdQuery(connector_id='alpha'))
     stored_beta = await first.definitions.get(ConnectorIdQuery(connector_id='beta'))
     assert {stored_alpha.definition.tool_name_prefix, stored_beta.definition.tool_name_prefix} in ({'Shared', 'Alpha'}, {'Shared', 'Beta'})
+
+
+@pytest.mark.parametrize("factory", (_inmemory, _sqlite), ids=("inmemory", "sqlite"))
+@pytest.mark.parametrize("interruption", ("discovery_failure", "authorization_invalidation"))
+@pytest.mark.asyncio
+async def test_reconnect_preserves_tool_choices(
+    tmp_path: Path,
+    factory: Callable[[Path, Callable[[str], None]], Awaitable[AggregateHarness]],
+    interruption: str,
+) -> None:
+    path = tmp_path / "reconnect.sqlite3"
+    await prepared_sqlite_runtime(path)
+    harness = await factory(path, lambda phase: None)
+    command = _published_prefix_command("alpha", "Alpha")
+    await harness.unit_of_work.create(command)
+    await harness.publishing.publish_connector("alpha")
+    enabled = CapabilityRef(connector_kind="downstream_mcp", connector_id="alpha", capability_kind="tool", capability_key="search")
+    disabled = replace(enabled, capability_key="disabled")
+    added = replace(enabled, capability_key="new")
+    await harness.activations.set_status(enabled, ActivationStatus.ENABLED)
+    await harness.activations.set_status(disabled, ActivationStatus.DISABLED)
+    health = ConnectorUnhealthy(connector_id="alpha", checked_at=command.health.health.checked_at, reason="auth_rejected")
+    for _ in range(2):
+        if interruption == "discovery_failure":
+            await harness.unit_of_work.apply_discovery(ApplyDiscoveredCatalog(
+                connector_id="alpha", catalog=DeleteCatalog(), health=health, operation_names=(),
+            ))
+        else:
+            await harness.unit_of_work.invalidate(InvalidateDownstreamConnectorAggregate(connector_id="alpha", health=health))
+            assert not await harness.publishing.is_published("alpha")
+        assert not isinstance(await harness.catalogs.get(ConnectorIdQuery(connector_id="alpha")), ToolCatalogFound)
+        assert await harness.activations.get_status(enabled) == ActivationStatus.ENABLED
+        assert await harness.activations.get_status(disabled) == ActivationStatus.DISABLED
+
+    snapshot = command.catalog.snapshot.model_copy(update={"tools": tuple(
+        command.catalog.snapshot.tools[0].model_copy(update={"identity": ToolIdentity(connector_id="alpha", downstream_name=name)})
+        for name in ("search", "disabled", "new")
+    )})
+    for _ in range(2):
+        await harness.unit_of_work.apply_discovery(ApplyDiscoveredCatalog(
+            connector_id="alpha", catalog=snapshot, health=command.health.health,
+            operation_names=("search", "disabled", "new"),
+        ))
+        assert await harness.activations.get_status(enabled) == ActivationStatus.ENABLED
+        assert await harness.activations.get_status(disabled) == ActivationStatus.DISABLED
+        assert await harness.activations.get_status(added) == ActivationStatus.DISABLED
