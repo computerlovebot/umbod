@@ -18,6 +18,10 @@
 
 **Read when working with:** Automated chart validation or rendered-resource invariants.
 
+## Release policy
+
+Canonical `umbod-v` tag pushes publish the SDK, then all three images, then this chart at one synchronized version. Stable three-component versions and `-beta.N` prereleases without leading zeros are accepted; the SDK uses PEP 440 beta spelling. The tag commit must be on `main` with successful exact-commit main-push CI. Chart version, appVersion, and core/frontend image tags are stamped together. Exact registry collisions stop publication; chart-only releases are not supported. Desktop releases remain independent.
+
 ## Deployment model
 
 This chart deploys Umbod for development and evaluation. It runs API and MCP as two containers in a single, fixed one-replica `Recreate` Deployment. Both containers share SQLite storage at `/app/data`. The frontend runs in a separate Deployment.

@@ -1,56 +1,66 @@
 import pytest
-from scripts.release_versions import latest, resolve, select_shared_release
+from scripts.release_versions import main
 
 
 @pytest.mark.parametrize(
-    ("current", "increment", "bootstrap", "pep440", "expected"),
+    ("tag", "sdk_version", "release_version"),
     [
-        ("0.0.1-beta.2", "beta", False, False, "0.0.1-beta.3"),
-        ("0.0.1-beta.2", "patch", False, False, "0.0.1"),
-        ("1.4.2", "beta", False, False, "1.4.3-beta.1"),
-        ("1.4.2", "minor", False, False, "1.5.0"),
-        ("1.4.2", "major", False, False, "2.0.0"),
-        ("0.0.1-beta.2", "beta", True, False, "0.0.1-beta.2"),
-        ("0.0.1-beta.2", "patch", True, False, "0.0.1"),
-        ("0.1.0", "patch", True, True, "0.1.0"),
-        ("0.1.0", "beta", True, True, "0.1.0b1"),
-        ("0.1.0b3", "patch", False, True, "0.1.0"),
+        ("umbod-v1.2.3", "1.2.3", "1.2.3"),
+        ("umbod-v0.0.0", "0.0.0", "0.0.0"),
+        ("umbod-v1.2.3-beta.0", "1.2.3b0", "1.2.3-beta.0"),
+        ("umbod-v1.2.3-beta.12", "1.2.3b12", "1.2.3-beta.12"),
     ],
 )
-def test_release_version_resolves_selected_increment(
-    current: str, increment: str, bootstrap: bool, pep440: bool, expected: str
+def test_tag_cli_emits_synchronized_versions(
+    tag: str, sdk_version: str, release_version: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert resolve(current, increment, bootstrap, pep440) == expected
+    assert main(["--tag", tag]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"sdk_version={sdk_version}",
+        f"image_version={release_version}",
+        f"chart_version={release_version}",
+    ]
 
 
 @pytest.mark.parametrize(
-    ("sdk", "image", "sdk_checked", "image_checked", "increment", "expected"),
+    "tag",
     [
-        ("1.2.3b2", "1.2.3-beta.2", "0.1.0", "0.0.1", "beta", ("1.2.3b3", "1.2.3-beta.3")),
-        ("1.2.3b2", "1.2.3", "0.1.0", "0.0.1", "patch", ("1.2.4", "1.2.4")),
-        ("1.2.4", "1.2.3", "0.1.0", "0.0.1", "patch", ("1.2.5", "1.2.5")),
-        ("", "0.1.2", "0.1.4", "0.0.1", "patch", ("0.1.5", "0.1.5")),
-        ("1.3.0", "", "0.1.0", "1.2.0", "minor", ("1.4.0", "1.4.0")),
-        ("", "", "0.1.0", "0.0.1-beta.4", "patch", ("0.1.0", "0.1.0")),
-        ("", "", "0.1.0", "0.0.1-beta.4", "beta", ("0.1.0b1", "0.1.0-beta.1")),
+        "",
+        "1.2.3",
+        "v1.2.3",
+        "desktop-v1.2.3",
+        "refs/tags/umbod-v1.2.3",
+        "umbod-v01.2.3",
+        "umbod-v1.02.3",
+        "umbod-v1.2.03",
+        "umbod-v1.2.3-beta.01",
+        "umbod-v1.2",
+        "umbod-v1.2.3.4",
+        "umbod-v1x2x3",
+        "umbod-v1.2.3b1",
+        "umbod-v1.2.3-beta",
+        "umbod-v1.2.3-beta.-1",
+        "umbod-v1.2.3-alpha.1",
+        "umbod-v1.2.3-rc.1",
+        "umbod-v1.2.3+build",
+        "umbod-v1.2.3-beta.1+build",
+        "umbod-v1.2.3\n",
+        " umbod-v1.2.3",
+        "umbod-v1.2.3 ",
+        "umbod-v１.2.3",
     ],
 )
-def test_shared_release_uses_highest_history_or_bootstrap(
-    sdk: str, image: str, sdk_checked: str, image_checked: str, increment: str, expected: tuple[str, str]
-) -> None:
-    selected = select_shared_release(sdk, image, sdk_checked, image_checked, increment)
-    assert (selected.pep440(), selected.semver()) == expected
+def test_tag_cli_rejects_noncanonical_tags_without_outputs(tag: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as error:
+        main(["--tag", tag])
+    assert error.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Unsupported release tag" in captured.err
 
 
-def test_stable_release_orders_above_same_triplet_beta() -> None:
-    assert latest(["1.2.3-beta.9", "1.2.3", "latest", "1.2.2"]) == "1.2.3"
-
-
-def test_shared_release_advances_published_version_when_other_side_is_absent() -> None:
-    selected = select_shared_release("0.1.0", "", "0.1.0", "0.0.1", "patch")
-    assert selected.pep440() == "0.1.1"
-
-
-def test_release_version_rejects_unsupported_version() -> None:
-    with pytest.raises(ValueError, match="Unsupported release version"):
-        resolve("latest", "patch", False, False)
+@pytest.mark.parametrize("arguments", [[], ["--current", "1.2.3"], ["--latest"], ["--shared"]])
+def test_tag_cli_requires_tag_and_rejects_obsolete_modes(arguments: list[str]) -> None:
+    with pytest.raises(SystemExit) as error:
+        main(arguments)
+    assert error.value.code == 2
