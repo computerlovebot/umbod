@@ -7,7 +7,7 @@ import UmbodCore
     var pending = defaults
     var running = defaults
     var calls: [String] = []
-    let request: ([String: Any]) async throws -> [String: Any] = { body in
+    let request: @MainActor ([String: Any]) async throws -> [String: Any] = { body in
         let action = body["action"] as! String
         calls.append(action)
         if action == "settings_save" { pending = try DesktopBackendSettings(body["settings"] as! [String: Any]) }
