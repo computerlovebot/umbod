@@ -41,6 +41,10 @@ public struct DesktopBackendSettings: Codable, Equatable, Sendable {
     @Published public private(set) var notice = ""
     public var hasPendingChanges: Bool { saved != nil && (draft != saved || saved != effective) }
     public init() {}
+    public func canSaveAndRestart(isOnline: Bool) -> Bool {
+        guard saved != nil, !working else { return false }
+        return isOnline ? hasPendingChanges : effective == nil && draft == saved
+    }
     public func requestAdministrator(_ enabled: Bool) {
         if enabled && !draft.administratorEnabled { confirmAdministrator = true }
         else { draft.administratorEnabled = enabled }

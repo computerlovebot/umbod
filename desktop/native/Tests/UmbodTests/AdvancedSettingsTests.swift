@@ -3,6 +3,7 @@ import UmbodCore
 
 @MainActor func advancedSettingsTests() async throws {
     let model = AdvancedSettingsModel()
+    precondition(!model.canSaveAndRestart(isOnline: true) && !model.canSaveAndRestart(isOnline: false))
     let defaults = DesktopBackendSettings()
     var pending = defaults
     var running = defaults
@@ -16,6 +17,7 @@ import UmbodCore
     }
     try await model.load(request: request)
     precondition(model.effective == defaults && !model.hasPendingChanges)
+    precondition(!model.canSaveAndRestart(isOnline: true) && !model.canSaveAndRestart(isOnline: false))
     model.requestAdministrator(true)
     precondition(model.confirmAdministrator && !model.draft.administratorEnabled)
     model.cancelAdministrator()
@@ -24,8 +26,10 @@ import UmbodCore
     model.acceptAdministrator()
     model.draft.exposureMode = .flat
     precondition(model.hasPendingChanges)
+    precondition(model.canSaveAndRestart(isOnline: true) && !model.canSaveAndRestart(isOnline: false))
     await model.saveAndRestart(request: request, stop: {
         calls.append("stop")
+        precondition(!model.canSaveAndRestart(isOnline: true) && !model.canSaveAndRestart(isOnline: false))
         precondition(model.saved == pending && model.effective == defaults)
     }, start: { calls.append("start"); running = pending })
     precondition(calls.suffix(5) == ["settings_save", "stop", "start", "health", "settings_get"])
@@ -34,6 +38,10 @@ import UmbodCore
     precondition(model.notice.isEmpty, "A new draft must not retain the previous active-settings notice")
     await model.saveAndRestart(request: request, stop: {}, start: { throw ContractError.message("Fixture port conflict") })
     precondition(model.saved?.exposureMode == .codemode && model.effective == nil && model.hasPendingChanges)
+    precondition(model.canSaveAndRestart(isOnline: false))
+    model.draft.exposureMode = .flat
+    precondition(!model.canSaveAndRestart(isOnline: false))
+    model.draft.exposureMode = .codemode
     precondition(model.error.contains("saved") && model.error.contains("Retry") && model.error.contains("Fixture port conflict"))
     await model.saveAndRestart(request: request, stop: {}, start: { running = pending })
     precondition(model.error.isEmpty && model.effective?.exposureMode == .codemode)

@@ -51,7 +51,7 @@ struct AdvancedSettingsView: View {
                             model.online = model.backend.isRunning
                             if settings.error.isEmpty { try? await model.refresh() }
                         }
-                    }.disabled(settings.saved == nil || settings.working || model.busy || (!settings.hasPendingChanges && model.online))
+                    }.disabled(model.busy || !settings.canSaveAndRestart(isOnline: model.online))
                     if settings.working { ProgressView().controlSize(.small) }
                     if model.online {
                         Button("Reload settings") { Task { await reload() } }.disabled(model.busy || settings.working)
