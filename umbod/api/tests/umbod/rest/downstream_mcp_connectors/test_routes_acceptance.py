@@ -1,3 +1,4 @@
+from umbod.core.connectors.downstream_mcp.probe import DiscoveredCapabilityTool
 from umbod.core.connectors.downstream_mcp.stores import TOOL_CATALOG_TABLE, ToolCatalogStoreService
 from tests.persistence_runtime import create_sqlite_runtime
 from collections.abc import Sequence
@@ -285,3 +286,30 @@ async def test_published_downstream_connector_appears_in_assignable_permission_t
     assert activation.status_code == 200
     assert response.status_code == 200
     assert response.json() == {'connectors': [{'connector_id': connector_id, 'display_name': 'Alpha'}], 'capabilities': [{'connector_id': connector_id, 'capability_kind': 'tool', 'capability_key': 'echo', 'display_name': 'Echo'}]}
+
+
+def test_failed_rediscovery_then_reconnect_remembers_tool_permissions(tmp_path: Path) -> None:
+    client = _client(tmp_path / "reconnect.sqlite3")
+    endpoint = "https://example.test/mcp"
+    tools = tuple(DiscoveredCapabilityTool(
+        name=name, title=name, description=name, input_schema={"type": "object"},
+    ) for name in ("enabled", "disabled", "new"))
+    initial = ProbeCapabilities(capabilities=DiscoveredCapabilities(tools=tools[:2]), endpoint_url=endpoint)
+    recovered = ProbeCapabilities(capabilities=DiscoveredCapabilities(tools=tools), endpoint_url=endpoint)
+    probe = ScriptedDownstreamMcpProbe((initial, ProbeFailed(code="timeout"), recovered, recovered))
+    admin_app = cast(FastAPI, next(route.app for route in client.app.routes if route.path == "/api/admin"))
+    admin_app.dependency_overrides[get_downstream_connector_probe] = lambda: probe
+    created = client.post("/api/admin/connectors/mcp", json=_payload())
+    assert created.status_code == 201
+    path = "/api/admin/connectors/mcp/" + created.json()["connector_id"]
+    assert client.put(path + "/tools/activation", json={"tools": [
+        {"tool_id": "enabled", "activation_status": "enabled"},
+        {"tool_id": "disabled", "activation_status": "disabled"},
+    ]}).status_code == 200
+    failed = client.post(path + "/discoveries")
+    assert failed.status_code >= 400
+    assert client.get(path + "/tools").json()["tools"] == []
+    for _ in range(2):
+        assert client.post(path + "/discoveries").status_code == 200
+        states = {tool["name"]: tool["activation_status"] for tool in client.get(path + "/tools").json()["tools"]}
+        assert states == {"enabled": "enabled", "disabled": "disabled", "new": "disabled"}

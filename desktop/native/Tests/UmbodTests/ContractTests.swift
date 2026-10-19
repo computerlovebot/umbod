@@ -3,6 +3,7 @@ import UmbodCore
 @main struct ContractTests {
     static func log(_ value: String) { FileHandle.standardOutput.write(Data((value + "\n").utf8)) }
     @MainActor static func main() async throws {
+        toolPermissionQueueTests()
         try updateTests()
         try await advancedSettingsTests()
         try await connectorEditorTests()

@@ -91,7 +91,7 @@ Try it with an integration your team actually needs. [Report an issue](https://g
 
 ## Image channels
 
-Successful pushes to `main` publish core, frontend, and connector-builder images to GHCR under `nightly` and `main-<commit SHA>` tags. `nightly` moves to the latest successful build; it does not automatically update running Kubernetes Pods. SHA-tagged builds are retained for 30 days, so use versioned beta or stable releases for long-lived installations. Versioned images and the Helm chart continue to be published through the separate manual release workflow.
+Successful pushes to `main` publish core, frontend, and connector-builder images to GHCR under `nightly` and `main-<commit SHA>` tags. `nightly` moves to the latest successful build; it does not automatically update running Kubernetes Pods. SHA-tagged builds are retained for 30 days, so use versioned beta or stable releases for long-lived installations. Canonical `umbod-v` tag pushes publish the SDK, then all three versioned images, then the Helm chart at one synchronized version, only from main commits with successful exact-commit push CI. Desktop releases remain independent.
 
 ## Contributing
 

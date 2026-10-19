@@ -130,7 +130,7 @@ class InMemoryDownstreamConnectorUnitOfWork:
             credential=KeepCredential(),
             catalog=DeleteCatalog(),
             health=ReplaceHealth(health=command.health),
-            activation=ReconcileActivation(operation_names=()),
+            activation=PreserveActivation(),
             publication=UnpublishConnector(),
         )
         await self.replace(replacement)
@@ -144,7 +144,9 @@ class InMemoryDownstreamConnectorUnitOfWork:
             if isinstance(catalog, DeleteCatalog)
             else ReplaceCatalog(snapshot=catalog),
             health=ReplaceHealth(health=command.health),
-            activation=ReconcileActivation(operation_names=command.operation_names),
+            activation=PreserveActivation()
+            if isinstance(catalog, DeleteCatalog)
+            else ReconcileActivation(operation_names=command.operation_names),
             publication=PreservePublication(),
         )
         await self.replace(replacement)

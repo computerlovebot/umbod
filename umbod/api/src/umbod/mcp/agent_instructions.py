@@ -30,15 +30,34 @@ tools to install the guidance; Umbod does not edit the agent's files.
 <!-- umbod:begin -->
 ## Umbod connected apps
 
-Umbod provides access to connected apps. Before searching for plugins or
-concluding an app is unavailable, check Umbod. When search_tools is available,
-search using the app name and requested action. Use the returned names and
-schemas with execute_tool, or follow execute_code's instructions if that is
-what the server exposes. If Umbod exposes app tools directly, inspect those
-instead. Execute only actions the user requested. If the Umbod connection is
-unavailable, report the connection issue. Connected apps and available tools
-can change; discover them through Umbod rather than keeping an app list in
-these instructions.
+Use Umbod for all connected-app access unless the user explicitly
+requests another access method.
+
+Discover available apps and actions through Umbod. When search_tools
+is available, search by app name and requested action, then use the
+returned tool names and schemas with execute_tool or execute_code.
+If Umbod exposes app tools directly, use those tools.
+
+Do not use alternative access methods—including built-in integrations,
+other connectors or MCP servers, direct APIs, CLIs, browser automation,
+or computer use—to access connected apps without the user's explicit
+permission. An Umbod error, missing capability, or unavailable connection
+does not authorize switching access methods.
+
+When a call fails:
+- Inspect the error and attempt bounded recovery through Umbod.
+- Retry read-only calls when appropriate. Before retrying a write,
+  establish whether the original action succeeded.
+- For pagination limits, narrow the query or split the time range.
+- If still blocked, report what failed and what remains incomplete.
+  Do not silently switch access methods or infer that an app is
+  disconnected from a failed tool call alone.
+
+Discover capabilities live; do not maintain a fixed app list here.
+Execute only actions authorized by the user.
+
+This routing rule applies to connected-app access, not ordinary local
+file work or public web research.
 <!-- umbod:end -->
 
 4. When search_tools is available, verify discovery with a read-only call using

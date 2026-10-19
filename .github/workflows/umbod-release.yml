@@ -1,31 +1,14 @@
 name: umbod Release
 
-run-name: umbod Release on main @ ${{ github.sha }}
+run-name: umbod Release ${{ github.ref_name }}
 
 on:
-  workflow_dispatch:
-    inputs:
-      release:
-        description: Publish SDK and builder/core/frontend images
-        type: boolean
-        default: false
-      release_increment:
-        description: SDK and image version increment
-        type: choice
-        options: [beta, patch, minor, major]
-        default: patch
-      chart:
-        description: Publish the Umbod Helm chart
-        type: boolean
-        default: false
-      chart_increment:
-        description: Chart version increment
-        type: choice
-        options: [beta, patch, minor, major]
-        default: patch
+  push:
+    tags:
+      - 'umbod-v*'
 
 concurrency:
-  group: umbod-release
+  group: umbod-release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -51,54 +34,43 @@ jobs:
       sdk_version: ${{ steps.resolve.outputs.sdk_version }}
       image_version: ${{ steps.resolve.outputs.image_version }}
       chart_version: ${{ steps.resolve.outputs.chart_version }}
-      chart_image_version: ${{ steps.resolve.outputs.chart_image_version }}
+      release_sha: ${{ steps.provenance.outputs.release_sha }}
     steps:
       - uses: actions/checkout@v6
-
-      - uses: docker/setup-buildx-action@v4
-
-      - uses: azure/setup-helm@v4.3.0
         with:
-          version: v3.17.3
+          fetch-depth: 0
 
       - name: Validate invocation and CI provenance
+        id: provenance
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          [[ "${GITHUB_REF}" == "refs/heads/main" ]] || { echo "Releases must run from main" >&2; exit 1; }
-          if [[ '${{ inputs.release }}' != 'true' && '${{ inputs.chart }}' != 'true' ]]; then
-            echo "Select at least one release group" >&2
-            exit 1
-          fi
-          count="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/umbod-ci.yml/runs?head_sha=${GITHUB_SHA}&branch=main&status=success&per_page=100" --jq '[.workflow_runs[] | select(.head_sha == "'"${GITHUB_SHA}"'" and .head_branch == "main" and .event == "push")] | length' | awk '{ total += $1 } END { print total + 0 }')"
-          [[ "${count}" -gt 0 ]] || { echo "Exact main commit ${GITHUB_SHA} has no successful umbod CI push run" >&2; exit 1; }
-
-      - name: Log in to GHCR
-        if: ${{ inputs.release || inputs.chart }}
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == refs/tags/umbod-v* ]] || { echo "Releases require an umbod-v tag push" >&2; exit 1; }
+          release_sha="$(git rev-parse HEAD^{commit})"
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "${release_sha}" refs/remotes/origin/main || { echo "Release commit must be on main" >&2; exit 1; }
+          count="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/umbod-ci.yml/runs?head_sha=${release_sha}&branch=main&status=success&per_page=100" --jq '[.workflow_runs[] | select(.head_sha == "'"${release_sha}"'" and .head_branch == "main" and .event == "push" and .conclusion == "success")] | length' | awk '{ total += $1 } END { print total + 0 }')"
+          [[ "${count}" -gt 0 ]] || { echo "Exact main commit ${release_sha} has no successful umbod CI push run" >&2; exit 1; }
+          echo "release_sha=${release_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Resolve versions
         id: resolve
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_SELECTED: ${{ inputs.release }}
-          RELEASE_INCREMENT: ${{ inputs.release_increment }}
-          CHART_SELECTED: ${{ inputs.chart }}
-          CHART_INCREMENT: ${{ inputs.chart_increment }}
         run: |
           set -euo pipefail
-          resolver="umbod/scripts/release_versions.py"
-          chart_checked="$(python3 -c 'import pathlib, re; print(re.search(r"^version: (.+)$", pathlib.Path("umbod/deploy/helm/umbod/Chart.yaml").read_text(), re.M).group(1))')"
-          image_checked="$(python3 -c 'import pathlib, re; print(re.search(r"^appVersion: [\"\x27]?([^\"\x27\n]+)", pathlib.Path("umbod/deploy/helm/umbod/Chart.yaml").read_text(), re.M).group(1))')"
-          sdk_checked="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("packages/umbod-sdk/pyproject.toml").read_text())["project"]["version"])')"
+          python3 umbod/scripts/release_versions.py --tag "${GITHUB_REF_NAME}" >> "${GITHUB_OUTPUT}"
 
+      - name: Ensure release versions are unpublished
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SDK_VERSION: ${{ steps.resolve.outputs.sdk_version }}
+          IMAGE_VERSION: ${{ steps.resolve.outputs.image_version }}
+          CHART_VERSION: ${{ steps.resolve.outputs.chart_version }}
+        run: |
+          set -euo pipefail
           package_tags() {
             local package_name="$1"
             local encoded response status body page count
@@ -109,99 +81,25 @@ jobs:
               status="$(curl --fail-with-body --silent --show-error --location --output "${response}" --write-out '%{http_code}' -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "https://api.github.com/orgs/computerlovetech/packages/container/${encoded}/versions?per_page=100&page=${page}" || true)"
               if [[ "${status}" == "404" && "${page}" == 1 ]]; then rm -f "${response}"; return 0; fi
               [[ "${status}" == "200" ]] || { body="$(cat "${response}")"; rm -f "${response}"; echo "GHCR lookup failed for ${package_name}: HTTP ${status}: ${body}" >&2; return 1; }
-              jq -r '.[].metadata.container.tags[]?' "${response}"
-              count="$(jq length "${response}")"
+              jq -r '.[].metadata.container.tags[]?' "${response}" || { rm -f "${response}"; return 1; }
+              count="$(jq length "${response}")" || { rm -f "${response}"; return 1; }
               [[ "${count}" -lt 100 ]] && break
               page=$((page + 1))
             done
             rm -f "${response}"
           }
 
-          core_tags=""
-          frontend_tags=""
-          builder_tags=""
-          if [[ "${RELEASE_SELECTED}" == true || "${CHART_SELECTED}" == true ]]; then
-            core_tags="$(package_tags umbod)"
-            frontend_tags="$(package_tags umbod-frontend)"
-            builder_tags="$(package_tags umbod-connector-builder)"
-          fi
-          latest_version() {
-            python3 "${resolver}" --latest
-          }
-          core_latest="$(printf '%s\n' "${core_tags}" | latest_version)"
-          frontend_latest="$(printf '%s\n' "${frontend_tags}" | latest_version)"
-          builder_latest="$(printf '%s\n' "${builder_tags}" | latest_version)"
-          if [[ "${RELEASE_SELECTED}" == true ]] && [[ "${core_latest}" != "${frontend_latest}" || "${core_latest}" != "${builder_latest}" ]]; then
-            echo "Image release versions disagree: core=${core_latest}, frontend=${frontend_latest}, builder=${builder_latest}" >&2
-            exit 1
-          fi
-          highest_common_images="$(comm -12 <(printf '%s\n' "${core_tags}" | sort -u) <(printf '%s\n' "${frontend_tags}" | sort -u) | comm -12 - <(printf '%s\n' "${builder_tags}" | sort -u) | latest_version)"
-          image_version=""
-          sdk_version=""
-
-          chart_tags=""
-          [[ "${CHART_SELECTED}" != true ]] || chart_tags="$(package_tags 'charts/umbod')"
-          chart_latest="$(printf '%s\n' "${chart_tags}" | latest_version)"
-          chart_args=(--current "${chart_latest:-${chart_checked}}" --increment "${CHART_INCREMENT}")
-          [[ -z "${chart_latest}" ]] && chart_args+=(--bootstrap)
-          chart_version="$(python3 "${resolver}" "${chart_args[@]}")"
-          if [[ "${CHART_SELECTED}" == true ]]; then
-            ! grep -Fxq "${chart_version}" <<< "${chart_tags}" || { echo "Chart ${chart_version} already exists" >&2; exit 1; }
-          fi
-
-          if [[ "${RELEASE_SELECTED}" == true ]]; then
-            sdk_response="$(mktemp)"
-            sdk_status="$(curl --silent --show-error --location --output "${sdk_response}" --write-out '%{http_code}' https://pypi.org/pypi/umbod/json)"
-            sdk_latest=""
-            if [[ "${sdk_status}" == "200" ]]; then
-              sdk_latest="$(jq -r '.releases | keys[]' "${sdk_response}" | latest_version)"
-              [[ -n "${sdk_latest}" ]] || { echo "PyPI project has no supported releases" >&2; exit 1; }
-            elif [[ "${sdk_status}" != "404" ]]; then
-              echo "PyPI lookup failed: HTTP ${sdk_status}: $(cat "${sdk_response}")" >&2
-              exit 1
-            fi
-            rm -f "${sdk_response}"
-            shared="$(python3 "${resolver}" --shared --sdk-current "${sdk_latest}" --image-current "${highest_common_images}" --sdk-checked "${sdk_checked}" --image-checked "${image_checked}" --increment "${RELEASE_INCREMENT}")"
-            sdk_version="$(printf '%s\n' "${shared}" | grep '^sdk_version=' | cut -d= -f2)"
-            image_version="$(printf '%s\n' "${shared}" | grep '^image_version=' | cut -d= -f2)"
-            for tags in "${core_tags}" "${frontend_tags}" "${builder_tags}"; do
-              ! grep -Fxq "${image_version}" <<< "${tags}" || { echo "Image ${image_version} already exists" >&2; exit 1; }
-            done
-          fi
-
-          chart_image_version="${image_version}"
-          if [[ "${RELEASE_SELECTED}" != true ]]; then
-            [[ -n "${highest_common_images}" ]] || { [[ "${CHART_SELECTED}" != true ]] || { echo "Chart-only release requires published core, frontend and builder images" >&2; exit 1; }; }
-            chart_image_version="${highest_common_images}"
-          fi
-          {
-            echo "sdk_version=${sdk_version}"
-            echo "image_version=${image_version}"
-            echo "chart_version=${chart_version}"
-            echo "chart_image_version=${chart_image_version}"
-          } >> "${GITHUB_OUTPUT}"
-
-      - name: Ensure selected versions are unpublished
-        shell: bash
-        env:
-          SDK_VERSION: ${{ steps.resolve.outputs.sdk_version }}
-          IMAGE_VERSION: ${{ steps.resolve.outputs.image_version }}
-          CHART_VERSION: ${{ steps.resolve.outputs.chart_version }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ '${{ inputs.release }}' == true ]]; then
-            sdk_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://pypi.org/pypi/umbod/${SDK_VERSION}/json")"
-            [[ "${sdk_status}" == "404" ]] || { [[ "${sdk_status}" != "200" ]] || echo "SDK ${SDK_VERSION} already exists" >&2; [[ "${sdk_status}" == "200" ]] || echo "PyPI preflight failed with HTTP ${sdk_status}" >&2; exit 1; }
-          fi
-          if [[ '${{ inputs.chart }}' == true ]]; then
-            echo "${GHCR_TOKEN}" | helm registry login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
-            if helm show chart "oci://${CHART_REGISTRY}/umbod" --version "${CHART_VERSION}" >/dev/null 2>&1; then echo "Chart ${CHART_VERSION} already exists" >&2; exit 1; fi
-          fi
+          for package in umbod umbod-frontend umbod-connector-builder; do
+            tags="$(package_tags "${package}")"
+            ! grep -Fxq "${IMAGE_VERSION}" <<< "${tags}" || { echo "Image ${package}:${IMAGE_VERSION} already exists" >&2; exit 1; }
+          done
+          chart_tags="$(package_tags 'charts/umbod')"
+          ! grep -Fxq "${CHART_VERSION}" <<< "${chart_tags}" || { echo "Chart ${CHART_VERSION} already exists" >&2; exit 1; }
+          sdk_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://pypi.org/pypi/umbod/${SDK_VERSION}/json")"
+          [[ "${sdk_status}" == "404" ]] || { [[ "${sdk_status}" != "200" ]] || echo "SDK ${SDK_VERSION} already exists" >&2; [[ "${sdk_status}" == "200" ]] || echo "PyPI preflight failed with HTTP ${sdk_status}" >&2; exit 1; }
 
   sdk-publish:
     name: Build and publish SDK
-    if: ${{ inputs.release }}
     needs: plan
     runs-on: ubuntu-latest
     environment: umbod-pypi
@@ -210,6 +108,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.release_sha }}
       - uses: astral-sh/setup-uv@v7
       - name: Build isolated SDK source
         shell: bash
@@ -242,7 +142,6 @@ jobs:
 
   images:
     name: Publish ${{ matrix.name }} image
-    if: ${{ always() && inputs.release && needs.plan.result == 'success' && needs.sdk-publish.result == 'success' }}
     needs: [plan, sdk-publish]
     runs-on: ubuntu-latest
     permissions:
@@ -257,6 +156,8 @@ jobs:
           - {name: frontend, image: ghcr.io/computerlovetech/umbod-frontend, context: umbod/frontend, file: umbod/frontend/Dockerfile, cache: umbod-frontend-release}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.release_sha }}
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v3
@@ -287,7 +188,7 @@ jobs:
           build-args: ${{ matrix.name == 'connector-builder' && format('UMBOD_RELEASE={0}', needs.plan.outputs.image_version) || '' }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.plan.outputs.release_sha }}
             org.opencontainers.image.version=${{ needs.plan.outputs.image_version }}
             org.opencontainers.image.umbod.sdk.version=${{ needs.plan.outputs.sdk_version }}
           cache-from: type=gha,scope=${{ matrix.cache }}
@@ -297,7 +198,6 @@ jobs:
 
   chart:
     name: Publish Helm chart
-    if: ${{ always() && inputs.chart && needs.plan.result == 'success' && (needs.images.result == 'success' || needs.images.result == 'skipped') }}
     needs: [plan, images]
     runs-on: ubuntu-latest
     permissions:
@@ -305,6 +205,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.release_sha }}
       - uses: azure/setup-helm@v4.3.0
         with: {version: v3.17.3}
       - name: Install kubeconform
@@ -321,7 +223,7 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.plan.outputs.chart_version }}
-          IMAGE_VERSION: ${{ needs.plan.outputs.chart_image_version }}
+          IMAGE_VERSION: ${{ needs.plan.outputs.image_version }}
         run: |
           set -euo pipefail
           cp -R "${CHART_DIRECTORY}" "${RUNNER_TEMP}/umbod"
@@ -349,7 +251,7 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.plan.outputs.chart_version }}
-          IMAGE_VERSION: ${{ needs.plan.outputs.chart_image_version }}
+          IMAGE_VERSION: ${{ needs.plan.outputs.image_version }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
